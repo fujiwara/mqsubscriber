@@ -1,3 +1,5 @@
+github.com/Songmu/prompter v0.5.1 h1:IAsttKsOZWSDw7bV1mtGn9TAmLFAjXbp9I/eYmUUogo=
+github.com/Songmu/prompter v0.5.1/go.mod h1:CS3jEPD6h9IaLaG6afrl1orTgII9+uDWuw95dr6xHSw=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/kong v1.14.0 h1:gFgEUZWu2ZmZ+UhyZ1bDhuutbKN1nTtJTwh19Wsn21s=
@@ -22,8 +24,8 @@ github.com/fujiwara/jsonnet-armed v0.1.1 h1:Lq65mAKzhdVWFLjQowYb4t4RS/1AMA5sXiGW
 github.com/fujiwara/jsonnet-armed v0.1.1/go.mod h1:MyGurW7aiBjqaRuXb1GsHGr43CbRkMJ8rg0zyYLd2CU=
 github.com/fujiwara/mqbridge v0.1.0 h1:bpwvTP2uFE+SFlcydfHSMKbSNmDQsUfp2oNhB7Wohgk=
 github.com/fujiwara/mqbridge v0.1.0/go.mod h1:eMfDmxvT49n3vVQ2n2fnCGOYa+m07wo9focjxAdyweo=
-github.com/fujiwara/sakura-secrets-cli v0.2.0 h1:PUuD/2b/sjfo+noRzzFQ/t8JYpq1iKLu5ZrNd7NZ/FU=
-github.com/fujiwara/sakura-secrets-cli v0.2.0/go.mod h1:1JhLMDqhoIO4Lmp2lPL1Q4Tp+U36wU2jcdhcHLSzfdI=
+github.com/fujiwara/sakura-secrets-cli v0.3.0 h1:dIwj2u+c16ZsSh/DjA2octkW3EHBF61B/5MJnwe48N8=
+github.com/fujiwara/sakura-secrets-cli v0.3.0/go.mod h1:u7wdFkMXan+O8WZO89hA3zZ3DABjKiZZja/nsDsFUfg=
 github.com/fujiwara/simplemq-cli v0.7.1 h1:MddPDrqaHeyS9non0uxZJ3zMvL7HxWBOJz2LxuRFusk=
 github.com/fujiwara/simplemq-cli v0.7.1/go.mod h1:sdbRiLCCkiSaVxxhXprFE++PQSqsRD1GXy5g/svLCxc=
 github.com/fujiwara/sloghandler v0.1.0 h1:4uxE5z01fKv/qzUoIyYk/2H1D4xEb/wi2K/Wks9z5Tg=
@@ -175,6 +177,8 @@ golang.org/x/sync v0.19.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
 golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.42.0 h1:omrd2nAlyT5ESRdCLYdm3+fMfNFE/+Rf4bDIQImRJeo=
 golang.org/x/sys v0.42.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+golang.org/x/term v0.40.0 h1:36e4zGLqU4yhjlmxEaagx2KuYbJq3EwY8K943ZsHcvg=
+golang.org/x/term v0.40.0/go.mod h1:w2P8uVp06p2iyKKuvXIm7N/y0UCRt3UfJTfZ7oOpglM=
 golang.org/x/text v0.34.0 h1:oL/Qq0Kdaqxa1KbNeMKwQq0reLCCaFtqu2eNuSeNHbk=
 golang.org/x/text v0.34.0/go.mod h1:homfLqTYRFyVYemLBFl5GgL/DWEiH5wcsQ5gSh1yziA=
 golang.org/x/tools v0.41.0 h1:a9b8iMweWG+S0OBnlU36rzLp20z1Rp10w+IY2czHTQc=
