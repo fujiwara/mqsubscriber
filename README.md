@@ -149,7 +149,25 @@ This ensures full round-trip compatibility: RabbitMQ → mqbridge → SimpleMQ �
 
 ## Observability
 
-OpenTelemetry metrics are automatically enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+OpenTelemetry metrics and traces are automatically enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
+### Traces
+
+Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/trace-context/) propagation through message headers.
+
+**Trace context propagation:**
+- On receive: extracts `traceparent`/`tracestate` from message headers (falls back to `rabbitmq.header.traceparent` for mqbridge compatibility)
+- On response: injects `traceparent`/`tracestate` into response message headers
+
+**Spans:**
+
+| Span | Description | Key Attributes |
+|------|-------------|----------------|
+| `simplemq_subscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking` |
+| `simplemq_subscriber.execute` | Command execution | `handler`, `command` |
+| `simplemq_subscriber.publish` | Response publish | `queue` |
+
+Errors (command failure, publish failure) are recorded on spans with `Error` status.
 
 ### Metrics
 

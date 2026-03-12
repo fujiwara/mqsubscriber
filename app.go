@@ -11,7 +11,10 @@ import (
 	"github.com/fujiwara/mqbridge"
 	simplemq "github.com/sacloud/simplemq-api-go"
 	"github.com/sacloud/simplemq-api-go/apis/v1/message"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // apiKeySource implements message.SecuritySource.
@@ -37,6 +40,7 @@ type App struct {
 	reqClient *message.Client
 	resClient *message.Client
 	metrics   *Metrics
+	tracer    trace.Tracer
 	wg        sync.WaitGroup
 }
 
@@ -72,6 +76,7 @@ func New(cfg *Config) (*App, error) {
 		reqClient: reqClient,
 		resClient: resClient,
 		metrics:   m,
+		tracer:    newTracer(),
 	}, nil
 }
 
@@ -170,11 +175,25 @@ func (a *App) findHandler(msg *mqbridge.Message) *Handler {
 }
 
 func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridge.Message, msgID message.MessageId) {
-	handler.logger.Debug("handling message", "messageId", msgID)
+	// Extract trace context from message headers (traceparent or rabbitmq.header.traceparent)
+	ctx = extractTraceContext(ctx, msg.Headers)
+
+	ctx, span := a.tracer.Start(ctx, "simplemq_subscriber.handle_message",
+		trace.WithAttributes(
+			attribute.String("handler", handler.name),
+			attribute.String("message_id", string(msgID)),
+			attribute.Bool("blocking", handler.blocking),
+		),
+	)
+	defer span.End()
+
+	handler.logger.DebugContext(ctx, "handling message", "messageId", msgID)
 
 	result, err := handler.Execute(ctx, msg)
 	if err != nil {
-		handler.logger.Error("command execution failed",
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "command execution failed")
+		handler.logger.ErrorContext(ctx, "command execution failed",
 			"messageId", msgID,
 			"error", err,
 		)
@@ -183,8 +202,13 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	}
 
 	if handler.response {
+		// Inject trace context into response message headers
+		injectTraceContext(ctx, result.Headers)
+
 		if err := a.publishResult(ctx, result); err != nil {
-			handler.logger.Error("failed to publish result",
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish result")
+			handler.logger.ErrorContext(ctx, "failed to publish result",
 				"messageId", msgID,
 				"error", err,
 			)
@@ -195,12 +219,21 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 
 	a.deleteMessage(ctx, msgID)
 	a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-	handler.logger.Debug("message processed", "messageId", msgID)
+	handler.logger.DebugContext(ctx, "message processed", "messageId", msgID)
 }
 
 func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
+	ctx, span := a.tracer.Start(ctx, "simplemq_subscriber.publish",
+		trace.WithAttributes(
+			attribute.String("queue", a.config.Response.Queue),
+		),
+	)
+	defer span.End()
+
 	data, err := mqbridge.MarshalMessage(msg)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to marshal message")
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(data)
@@ -209,6 +242,8 @@ func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
 		message.SendMessageParams{QueueName: message.QueueName(a.config.Response.Queue)},
 	)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to send message")
 		return fmt.Errorf("failed to send message to response queue %q: %w", a.config.Response.Queue, err)
 	}
 	if _, ok := res.(*message.SendMessageOK); !ok {

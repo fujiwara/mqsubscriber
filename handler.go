@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/fujiwara/mqbridge"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler matches messages by headers and executes a command.
@@ -69,6 +72,14 @@ func (h *Handler) Match(msg *mqbridge.Message) bool {
 // Execute runs the command with the message body as stdin.
 // Returns a response message with stdout as body and original headers preserved.
 func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) (*mqbridge.Message, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "simplemq_subscriber.execute",
+		trace.WithAttributes(
+			attribute.String("handler", h.name),
+			attribute.String("command", h.command[0]),
+		),
+	)
+	defer span.End()
+
 	cmdCtx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
 
@@ -90,10 +101,12 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) (*mqbridge
 	h.metrics.commandDuration.Record(ctx, duration, metric.WithAttributeSet(h.attrs))
 
 	if stderr.Len() > 0 {
-		h.logger.Info("command stderr", "stderr", stderr.String())
+		h.logger.InfoContext(ctx, "command stderr", "stderr", stderr.String())
 	}
 
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "command failed")
 		return nil, fmt.Errorf("command failed: %w", err)
 	}
 

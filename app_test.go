@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -13,6 +14,17 @@ import (
 )
 
 const testAPIKey = "test-api-key"
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	shutdown, err := setupOTelProviders(ctx)
+	if err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	shutdown(ctx)
+	os.Exit(code)
+}
 
 type testSecuritySource struct {
 	token string
