@@ -10,6 +10,15 @@ import (
 	armed "github.com/fujiwara/jsonnet-armed"
 )
 
+const (
+	// DefaultPollingInterval is the default interval for polling the request queue.
+	DefaultPollingInterval = time.Second
+	// DefaultCommandTimeout is the default timeout for command execution.
+	DefaultCommandTimeout = 30 * time.Second
+	// DefaultMaxConcurrency is the default max concurrency for non-blocking handlers.
+	DefaultMaxConcurrency = 1
+)
+
 // Config is the top-level configuration.
 type Config struct {
 	SimpleMQ SimpleMQConfig  `json:"simplemq"`
@@ -34,11 +43,11 @@ type RequestConfig struct {
 // GetPollingInterval returns the polling interval as a time.Duration.
 func (c *RequestConfig) GetPollingInterval() time.Duration {
 	if c.PollingInterval == "" {
-		return time.Second
+		return DefaultPollingInterval
 	}
 	d, err := time.ParseDuration(c.PollingInterval)
 	if err != nil {
-		return time.Second
+		return DefaultPollingInterval
 	}
 	return d
 }
@@ -58,24 +67,33 @@ type HandlerConfig struct {
 	Timeout        string            `json:"timeout"`
 	Blocking       bool              `json:"blocking"`
 	MaxConcurrency int               `json:"max_concurrency"`
+	Response       *bool             `json:"response"`
 }
 
 // GetTimeout returns the command timeout as a time.Duration.
 func (c *HandlerConfig) GetTimeout() time.Duration {
 	if c.Timeout == "" {
-		return 30 * time.Second
+		return DefaultCommandTimeout
 	}
 	d, err := time.ParseDuration(c.Timeout)
 	if err != nil {
-		return 30 * time.Second
+		return DefaultCommandTimeout
 	}
 	return d
+}
+
+// GetResponse returns whether the handler sends a response. Default is true.
+func (c *HandlerConfig) GetResponse() bool {
+	if c.Response == nil {
+		return true
+	}
+	return *c.Response
 }
 
 // GetMaxConcurrency returns the max concurrency for non-blocking handlers.
 func (c *HandlerConfig) GetMaxConcurrency() int {
 	if c.MaxConcurrency <= 0 {
-		return 1
+		return DefaultMaxConcurrency
 	}
 	return c.MaxConcurrency
 }

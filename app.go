@@ -182,13 +182,15 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 		return // don't delete message, will be redelivered
 	}
 
-	if err := a.publishResult(ctx, result); err != nil {
-		handler.logger.Error("failed to publish result",
-			"messageId", msgID,
-			"error", err,
-		)
-		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-		return // don't delete message, will be redelivered
+	if handler.response {
+		if err := a.publishResult(ctx, result); err != nil {
+			handler.logger.Error("failed to publish result",
+				"messageId", msgID,
+				"error", err,
+			)
+			a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
+			return // don't delete message, will be redelivered
+		}
 	}
 
 	a.deleteMessage(ctx, msgID)

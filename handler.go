@@ -22,6 +22,7 @@ type Handler struct {
 	command        []string
 	timeout        time.Duration
 	blocking       bool
+	response       bool
 	maxConcurrency int
 	sem            chan struct{} // semaphore for non-blocking concurrency control
 	logger         *slog.Logger
@@ -37,6 +38,7 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
 		command:        cfg.Command,
 		timeout:        cfg.GetTimeout(),
 		blocking:       cfg.Blocking,
+		response:       cfg.GetResponse(),
 		maxConcurrency: cfg.GetMaxConcurrency(),
 		logger:         logger.With("handler", cfg.Name),
 		metrics:        m,
