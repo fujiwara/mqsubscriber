@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,15 +108,14 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) (*mqbridge
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "command failed")
-		return nil, fmt.Errorf("command failed: %w", err)
+		if !h.response {
+			return nil, fmt.Errorf("command failed: %w", err)
+		}
+		// response mode: return error response so the caller is not left waiting
+		return h.buildResponse(msg, tailBytes(stderr.Bytes(), maxErrorBodySize), "error", cmd.ProcessState.ExitCode()), nil
 	}
 
-	// Build response message with original headers preserved
-	result := &mqbridge.Message{
-		Body:    stdout.Bytes(),
-		Headers: copyHeaders(msg.Headers),
-	}
-	return result, nil
+	return h.buildResponse(msg, stdout.Bytes(), "success", 0), nil
 }
 
 // Acquire acquires a semaphore slot for non-blocking handlers.
@@ -138,6 +138,50 @@ func (h *Handler) Release() {
 		return
 	}
 	<-h.sem
+}
+
+// buildResponse constructs a response message from the original request.
+// It copies headers, applies RPC routing when reply_to is present,
+// and sets x-status / x-exit-code headers.
+func (h *Handler) buildResponse(req *mqbridge.Message, body []byte, status string, exitCode int) *mqbridge.Message {
+	respHeaders := copyHeaders(req.Headers)
+
+	// Determine status header key prefix based on context:
+	// RabbitMQ (reply_to present) -> "rabbitmq.header." prefix for AMQP header mapping
+	// SimpleMQ-only              -> no prefix
+	statusKey := "x-status"
+	exitCodeKey := "x-exit-code"
+	if replyTo := req.Headers["rabbitmq.reply_to"]; replyTo != "" {
+		// RPC response routing: route via default exchange to the reply queue
+		respHeaders["rabbitmq.exchange"] = ""
+		respHeaders["rabbitmq.routing_key"] = replyTo
+		delete(respHeaders, "rabbitmq.reply_to")
+		statusKey = "rabbitmq.header." + statusKey
+		exitCodeKey = "rabbitmq.header." + exitCodeKey
+	}
+
+	respHeaders[statusKey] = status
+	if exitCode != 0 {
+		respHeaders[exitCodeKey] = strconv.Itoa(exitCode)
+	}
+
+	return &mqbridge.Message{
+		Body:    body,
+		Headers: respHeaders,
+	}
+}
+
+// maxErrorBodySize is the maximum size of stderr included in error responses.
+// Only the last 4KB is kept, as the most relevant error information
+// (final error messages, stack traces) typically appears at the end.
+const maxErrorBodySize = 4096
+
+// tailBytes returns the last n bytes of b. If b is shorter than n, returns b as-is.
+func tailBytes(b []byte, n int) []byte {
+	if len(b) <= n {
+		return b
+	}
+	return b[len(b)-n:]
 }
 
 // headersToEnv converts message headers to environment variables.

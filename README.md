@@ -116,8 +116,36 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
   - e.g., `rabbitmq.routing_key` → `SIMPLEMQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
-- Original message headers are preserved in the response (for mqbridge routing back to RabbitMQ)
-- If the command fails (non-zero exit), the message is **not deleted** and will be redelivered after the visibility timeout
+- If the command fails (non-zero exit) and `response` is disabled, the message is **not deleted** and will be redelivered after the visibility timeout
+
+### Response Status Headers
+
+Response messages include status headers to indicate success or failure:
+
+| Header | Description |
+|--------|-------------|
+| `x-status` | `success` or `error` |
+| `x-exit-code` | Exit code (only set on error, e.g. `1`) |
+
+When the message originates from RabbitMQ (`rabbitmq.reply_to` is present), these headers use the `rabbitmq.header.` prefix (e.g. `rabbitmq.header.x-status`) so they are mapped to AMQP headers by mqbridge.
+
+**Error handling by `response` setting:**
+
+- **`response: true`** (default): On command failure, an error response is sent with `x-status: error`, the last 4KB of stderr as the body, and the message is deleted. This ensures the caller is not left waiting indefinitely.
+- **`response: false`**: On command failure, no response is sent and the message is **not deleted** (will be redelivered for retry).
+
+### RPC Response Routing
+
+When a message contains a `rabbitmq.reply_to` header (set by RabbitMQ RPC clients), the response is automatically routed to the reply queue:
+
+- `rabbitmq.exchange` is set to `""` (default exchange)
+- `rabbitmq.routing_key` is set to the `rabbitmq.reply_to` value
+- `rabbitmq.reply_to` is removed from the response headers
+- `rabbitmq.correlation_id` is preserved as-is
+
+This enables the standard RabbitMQ RPC pattern: the response is delivered directly to the caller's exclusive reply queue via the default exchange.
+
+If `rabbitmq.reply_to` is **not present**, the original headers are preserved as-is in the response. This allows simplemq-subscriber to be used independently of RabbitMQ, where messages are simply forwarded between SimpleMQ queues without RPC routing.
 
 ### Jsonnet Built-in Functions
 
@@ -154,7 +182,7 @@ simplemq-subscriber uses the same wire format as [mqbridge](https://github.com/f
 1. **Receive**: SimpleMQ delivers base64-encoded content → simplemq-subscriber decodes it → `mqbridge.UnmarshalMessage()` parses the JSON into `mqbridge.Message` (headers + body)
 2. **Dispatch**: The `headers` are used for handler matching (e.g., match on `rabbitmq.routing_key`)
 3. **Execute**: `body` is passed to the command's stdin. `headers` are available as `SIMPLEMQ_HEADER_*` environment variables
-4. **Respond**: Command stdout becomes the new `body`. The original `headers` are preserved in the response so that mqbridge can route the result back to the correct RabbitMQ exchange/routing_key
+4. **Respond**: Command stdout becomes the new `body`. If `rabbitmq.reply_to` is present, the response is routed to the reply queue via the default exchange (RPC pattern). Otherwise, the original headers are preserved as-is
 5. **Publish**: The response is serialized via `mqbridge.MarshalMessage()` → base64-encoded → sent to the response queue
 
 This ensures full round-trip compatibility: RabbitMQ → mqbridge → SimpleMQ → simplemq-subscriber → SimpleMQ → mqbridge → RabbitMQ.

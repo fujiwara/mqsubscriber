@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -83,6 +84,15 @@ func injectTraceContext(ctx context.Context, headers map[string]string) {
 	for k, v := range carrier {
 		headers[k] = v
 	}
+}
+
+// headerAttributes converts message headers to span attributes with the given prefix.
+func headerAttributes(prefix string, headers map[string]string) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, len(headers))
+	for k, v := range headers {
+		attrs = append(attrs, attribute.String(prefix+k, v))
+	}
+	return attrs
 }
 
 // Metrics holds OpenTelemetry metric instruments.

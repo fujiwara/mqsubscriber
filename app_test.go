@@ -130,8 +130,10 @@ func TestBlockingHandler(t *testing.T) {
 	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
 		Body: []byte(testBody),
 		Headers: map[string]string{
-			"rabbitmq.routing_key": "echo",
-			"rabbitmq.exchange":    "test-exchange",
+			"rabbitmq.routing_key":    "echo",
+			"rabbitmq.exchange":       "test-exchange",
+			"rabbitmq.reply_to":       "reply-queue",
+			"rabbitmq.correlation_id": "corr-123",
 		},
 	})
 
@@ -142,12 +144,18 @@ func TestBlockingHandler(t *testing.T) {
 	if string(received.Body) != testBody {
 		t.Errorf("body: expected %q, got %q", testBody, string(received.Body))
 	}
-	// Headers should be preserved
-	if received.Headers["rabbitmq.routing_key"] != "echo" {
-		t.Errorf("routing_key: expected %q, got %q", "echo", received.Headers["rabbitmq.routing_key"])
+	// RPC routing: exchange should be empty, routing_key should be reply_to value
+	if received.Headers["rabbitmq.exchange"] != "" {
+		t.Errorf("exchange: expected empty, got %q", received.Headers["rabbitmq.exchange"])
 	}
-	if received.Headers["rabbitmq.exchange"] != "test-exchange" {
-		t.Errorf("exchange: expected %q, got %q", "test-exchange", received.Headers["rabbitmq.exchange"])
+	if received.Headers["rabbitmq.routing_key"] != "reply-queue" {
+		t.Errorf("routing_key: expected %q, got %q", "reply-queue", received.Headers["rabbitmq.routing_key"])
+	}
+	if received.Headers["rabbitmq.correlation_id"] != "corr-123" {
+		t.Errorf("correlation_id: expected %q, got %q", "corr-123", received.Headers["rabbitmq.correlation_id"])
+	}
+	if _, ok := received.Headers["rabbitmq.reply_to"]; ok {
+		t.Error("reply_to should be removed from response")
 	}
 }
 
@@ -196,6 +204,7 @@ func TestNonBlockingHandler(t *testing.T) {
 		Body: []byte("hello"),
 		Headers: map[string]string{
 			"rabbitmq.routing_key": "upper",
+			"rabbitmq.reply_to":    "reply-queue",
 		},
 	})
 
@@ -326,6 +335,7 @@ func TestMultipleHandlers(t *testing.T) {
 		Body: []byte("hello"),
 		Headers: map[string]string{
 			"rabbitmq.routing_key": "echo",
+			"rabbitmq.reply_to":    "reply-queue",
 		},
 	})
 
@@ -342,6 +352,7 @@ func TestMultipleHandlers(t *testing.T) {
 		Body: []byte("world"),
 		Headers: map[string]string{
 			"rabbitmq.routing_key": "upper",
+			"rabbitmq.reply_to":    "reply-queue",
 		},
 	})
 
@@ -354,12 +365,12 @@ func TestMultipleHandlers(t *testing.T) {
 	}
 }
 
-func TestCommandFailure(t *testing.T) {
+func TestCommandFailureResponseTrue(t *testing.T) {
 	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
 	defer srv.Close()
 
-	reqQueue := uniqueName("req-fail")
-	resQueue := uniqueName("res-fail")
+	reqQueue := uniqueName("req-fail-res")
+	resQueue := uniqueName("res-fail-res")
 
 	cfg := &Config{
 		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
@@ -376,6 +387,7 @@ func TestCommandFailure(t *testing.T) {
 				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
 				Command:  []string{"false"},
 				Blocking: true,
+				// response defaults to true: error response should be sent
 			},
 		},
 	}
@@ -400,10 +412,71 @@ func TestCommandFailure(t *testing.T) {
 		},
 	})
 
-	// No response should be sent
+	// response:true handler should send error response
+	received := receiveTestMessage(t, ctx, client, resQueue)
+	if received == nil {
+		t.Fatal("expected error response, got nil")
+	}
+	if received.Headers["x-status"] != "error" {
+		t.Errorf("x-status: expected %q, got %q", "error", received.Headers["x-status"])
+	}
+	if received.Headers["x-exit-code"] != "1" {
+		t.Errorf("x-exit-code: expected %q, got %q", "1", received.Headers["x-exit-code"])
+	}
+}
+
+func TestCommandFailureResponseFalse(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-fail-nores")
+	resQueue := uniqueName("res-fail-nores")
+
+	responseFalse := false
+	cfg := &Config{
+		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		Request: RequestConfig{
+			Queue: reqQueue, APIKey: testAPIKey,
+			PollingInterval: "100ms",
+		},
+		Response: ResponseConfig{
+			Queue: resQueue, APIKey: testAPIKey,
+		},
+		Handlers: []HandlerConfig{
+			{
+				Name:     "fail",
+				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+				Command:  []string{"false"},
+				Blocking: true,
+				Response: &responseFalse,
+			},
+		},
+	}
+
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	go app.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("fail"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key": "fail",
+		},
+	})
+
+	// response:false handler should NOT send response on failure
 	time.Sleep(500 * time.Millisecond)
 	received := receiveTestMessage(t, ctx, client, resQueue)
 	if received != nil {
-		t.Errorf("expected no response for failed command, got %q", string(received.Body))
+		t.Errorf("expected no response for failed command with response:false, got %q", string(received.Body))
 	}
 }
