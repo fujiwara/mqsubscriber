@@ -109,6 +109,7 @@ func TestBlockingHandler(t *testing.T) {
 				Command:  []string{"cat"},
 				Timeout:  "5s",
 				Blocking: true,
+				Response: true,
 			},
 		},
 	}
@@ -183,6 +184,7 @@ func TestNonBlockingHandler(t *testing.T) {
 				Timeout:        "5s",
 				Blocking:       false,
 				MaxConcurrency: 3,
+				Response:       true,
 			},
 		},
 	}
@@ -306,6 +308,7 @@ func TestMultipleHandlers(t *testing.T) {
 				Match:    map[string]string{"rabbitmq.routing_key": "echo"},
 				Command:  []string{"cat"},
 				Blocking: true,
+				Response: true,
 			},
 			{
 				Name:           "upper",
@@ -313,6 +316,7 @@ func TestMultipleHandlers(t *testing.T) {
 				Command:        []string{"tr", "a-z", "A-Z"},
 				Blocking:       false,
 				MaxConcurrency: 2,
+				Response:       true,
 			},
 		},
 	}
@@ -387,7 +391,7 @@ func TestCommandFailureResponseTrue(t *testing.T) {
 				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
 				Command:  []string{"false"},
 				Blocking: true,
-				// response defaults to true: error response should be sent
+				Response: true,
 			},
 		},
 	}
@@ -432,7 +436,6 @@ func TestCommandFailureResponseFalse(t *testing.T) {
 	reqQueue := uniqueName("req-fail-nores")
 	resQueue := uniqueName("res-fail-nores")
 
-	responseFalse := false
 	cfg := &Config{
 		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
@@ -448,7 +451,6 @@ func TestCommandFailureResponseFalse(t *testing.T) {
 				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
 				Command:  []string{"false"},
 				Blocking: true,
-				Response: &responseFalse,
 			},
 		},
 	}

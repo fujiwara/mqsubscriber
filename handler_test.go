@@ -79,8 +79,6 @@ func TestHandlerMatch(t *testing.T) {
 	}
 }
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestHandlerExecute(t *testing.T) {
 	m := newTestMetrics(t)
 	h := NewHandler(HandlerConfig{
@@ -223,7 +221,7 @@ func TestHandlerExecuteFailure(t *testing.T) {
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"false"},
 			Timeout:  "5s",
-			Response: boolPtr(false),
+			Response: false,
 		}, slog.Default(), m)
 
 		msg := &mqbridge.Message{Body: []byte("test"), Headers: map[string]string{"k": "v"}}
@@ -239,7 +237,7 @@ func TestHandlerExecuteFailure(t *testing.T) {
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"sh", "-c", "echo 'something went wrong' >&2; exit 1"},
 			Timeout:  "5s",
-			Response: boolPtr(true),
+			Response: true,
 		}, slog.Default(), m)
 
 		msg := &mqbridge.Message{
@@ -272,7 +270,7 @@ func TestHandlerExecuteFailure(t *testing.T) {
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"sh", "-c", "dd if=/dev/zero bs=1 count=8192 | tr '\\0' 'X' >&2; exit 1"},
 			Timeout:  "5s",
-			Response: boolPtr(true),
+			Response: true,
 		}, slog.Default(), m)
 
 		msg := &mqbridge.Message{
@@ -297,7 +295,7 @@ func TestHandlerExecuteFailure(t *testing.T) {
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"false"},
 			Timeout:  "5s",
-			Response: boolPtr(true),
+			Response: true,
 		}, slog.Default(), m)
 
 		msg := &mqbridge.Message{
@@ -340,7 +338,7 @@ func TestHandlerExecuteTimeout(t *testing.T) {
 		Match:    map[string]string{"k": "v"},
 		Command:  []string{"sleep", "10"},
 		Timeout:  "100ms",
-		Response: boolPtr(false),
+		Response: false,
 	}, slog.Default(), m)
 
 	msg := &mqbridge.Message{Body: []byte("test"), Headers: map[string]string{"k": "v"}}
