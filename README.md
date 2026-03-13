@@ -244,13 +244,13 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 
 ### Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `simplemq_subscriber.messages.received` | Counter | Messages received from request queue |
-| `simplemq_subscriber.messages.processed` | Counter | Messages successfully processed |
-| `simplemq_subscriber.messages.errors` | Counter | Message processing errors |
-| `simplemq_subscriber.messages.dropped` | Counter | Messages dropped (no matching handler) |
-| `simplemq_subscriber.command.duration` | Histogram | Command execution duration (seconds) |
+| Metric | Type | Description | Attributes |
+|--------|------|-------------|------------|
+| `simplemq_subscriber.messages.received` | Counter | Messages received from request queue | — |
+| `simplemq_subscriber.messages.processed` | Counter | Messages successfully processed | `handler` |
+| `simplemq_subscriber.messages.errors` | Counter | Message processing errors | `handler` |
+| `simplemq_subscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
+| `simplemq_subscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 
 ## LICENSE
 
