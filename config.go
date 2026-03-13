@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	armed "github.com/fujiwara/jsonnet-armed"
@@ -68,7 +69,7 @@ type HandlerConfig struct {
 	Timeout        string            `json:"timeout"`
 	Blocking       bool              `json:"blocking"`
 	MaxConcurrency int               `json:"max_concurrency"`
-	Response       *bool             `json:"response"`
+	Response       bool              `json:"response"`
 }
 
 // GetTimeout returns the command timeout as a time.Duration.
@@ -81,14 +82,6 @@ func (c *HandlerConfig) GetTimeout() time.Duration {
 		return DefaultCommandTimeout
 	}
 	return d
-}
-
-// GetResponse returns whether the handler sends a response. Default is true.
-func (c *HandlerConfig) GetResponse() bool {
-	if c.Response == nil {
-		return true
-	}
-	return *c.Response
 }
 
 // GetMaxConcurrency returns the max concurrency for non-blocking handlers.
@@ -134,6 +127,21 @@ func parseConfig(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// needsResponseQueue returns true if any handler has response enabled.
+func (c *Config) needsResponseQueue() bool {
+	for _, h := range c.Handlers {
+		if h.Response {
+			return true
+		}
+	}
+	return false
+}
+
+// hasResponseQueue returns true if the response queue is configured.
+func (c *Config) hasResponseQueue() bool {
+	return c.Response.Queue != "" && c.Response.APIKey != ""
+}
+
 // Validate checks the configuration for correctness.
 func (c *Config) Validate() error {
 	c.applyDefaults()
@@ -144,12 +152,6 @@ func (c *Config) Validate() error {
 	if c.Request.APIKey == "" {
 		return fmt.Errorf("request.api_key is required")
 	}
-	if c.Response.Queue == "" {
-		return fmt.Errorf("response.queue is required")
-	}
-	if c.Response.APIKey == "" {
-		return fmt.Errorf("response.api_key is required")
-	}
 	if len(c.Handlers) == 0 {
 		return fmt.Errorf("at least one handler is required")
 	}
@@ -158,6 +160,17 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
+
+	needsResponse := c.needsResponseQueue()
+	hasResponse := c.hasResponseQueue()
+
+	if needsResponse && !hasResponse {
+		return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
+	}
+	if !needsResponse && hasResponse {
+		slog.Warn("response queue is configured but no handler has response enabled")
+	}
+
 	return nil
 }
 

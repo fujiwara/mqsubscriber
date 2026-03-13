@@ -42,7 +42,7 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
 		command:        cfg.Command,
 		timeout:        cfg.GetTimeout(),
 		blocking:       cfg.Blocking,
-		response:       cfg.GetResponse(),
+		response:       cfg.Response,
 		maxConcurrency: cfg.GetMaxConcurrency(),
 		logger:         logger.With("handler", cfg.Name),
 		metrics:        m,

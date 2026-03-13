@@ -132,6 +132,7 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
     api_key: must_env("REQUEST_API_KEY"),
     polling_interval: "1s",  // optional, default: 1s
   },
+  // response queue is optional — required only when any handler has response: true
   response: {
     queue: "response-queue",
     api_key: must_env("RESPONSE_API_KEY"),
@@ -146,6 +147,7 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
       command: ["/usr/local/bin/deploy.sh"],
       timeout: "60s",     // optional, default: 30s
       blocking: true,     // wait for completion before processing next message
+      response: true,     // send response back (requires response queue)
     },
     {
       name: "notify",
@@ -156,6 +158,7 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
       timeout: "10s",
       blocking: false,       // run in background goroutine
       max_concurrency: 5,    // max concurrent executions (default: 1)
+      // response defaults to false (fire-and-forget)
     },
   ],
 }
@@ -194,8 +197,8 @@ When the message originates from RabbitMQ (`rabbitmq.reply_to` is present), thes
 
 **Error handling by `response` setting:**
 
-- **`response: true`** (default): On command failure, an error response is sent with `x-status: error`, the last 4KB of stderr as the body, and the message is deleted. This ensures the caller is not left waiting indefinitely.
-- **`response: false`**: On command failure, no response is sent and the message is **not deleted** (will be redelivered for retry).
+- **`response: true`**: On command failure, an error response is sent with `x-status: error`, the last 4KB of stderr as the body, and the message is deleted. This ensures the caller is not left waiting indefinitely. Requires `response` queue to be configured.
+- **`response: false`** (default): On command failure, no response is sent and the message is **not deleted** (will be redelivered for retry). No response queue is needed.
 
 ### RPC Response Routing
 

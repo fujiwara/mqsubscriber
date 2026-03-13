@@ -41,20 +41,28 @@ func TestValidateConfig(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid",
+			name: "valid without response queue",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 				Handlers: []HandlerConfig{
 					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
 				},
 			},
 		},
 		{
+			name: "valid with response queue and response handler",
+			config: Config{
+				Request:  RequestConfig{Queue: "q", APIKey: "k"},
+				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
+				},
+			},
+		},
+		{
 			name: "missing request queue",
 			config: Config{
-				Request:  RequestConfig{APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{APIKey: "k"},
 				Handlers: []HandlerConfig{
 					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
 				},
@@ -62,12 +70,11 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing response api_key",
+			name: "response handler without response queue",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
 				},
 			},
 			wantErr: true,
@@ -75,16 +82,14 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "no handlers",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "handler missing name",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 				Handlers: []HandlerConfig{
 					{Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
 				},
@@ -94,8 +99,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "handler missing match",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 				Handlers: []HandlerConfig{
 					{Name: "h", Command: []string{"echo"}},
 				},
@@ -105,8 +109,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "handler missing command",
 			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
+				Request: RequestConfig{Queue: "q", APIKey: "k"},
 				Handlers: []HandlerConfig{
 					{Name: "h", Match: map[string]string{"k": "v"}},
 				},

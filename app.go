@@ -59,9 +59,12 @@ func New(cfg *Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request queue client: %w", err)
 	}
-	resClient, err := newSimpleMQClient(cfg.Response.APIURL, cfg.Response.APIKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create response queue client: %w", err)
+	var resClient *message.Client
+	if cfg.hasResponseQueue() {
+		resClient, err = newSimpleMQClient(cfg.Response.APIURL, cfg.Response.APIKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create response queue client: %w", err)
+		}
 	}
 
 	var handlers []*Handler
@@ -82,11 +85,14 @@ func New(cfg *Config) (*App, error) {
 
 // Run starts the subscriber loop.
 func (a *App) Run(ctx context.Context) error {
-	slog.Info("starting simplemq-subscriber",
+	logAttrs := []any{
 		"request_queue", a.config.Request.Queue,
-		"response_queue", a.config.Response.Queue,
 		"handlers", len(a.handlers),
-	)
+	}
+	if a.config.Response.Queue != "" {
+		logAttrs = append(logAttrs, "response_queue", a.config.Response.Queue)
+	}
+	slog.Info("starting simplemq-subscriber", logAttrs...)
 
 	interval := a.config.Request.GetPollingInterval()
 	ticker := time.NewTicker(interval)

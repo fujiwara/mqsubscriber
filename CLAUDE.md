@@ -37,7 +37,8 @@ go fmt ./...
 - Import `mqbridge.Message` directly — do not copy the struct
 - SimpleMQ default API URL comes from `simplemq.DefaultMessageAPIRootURL` (SDK), not hardcoded
 - Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`) are defined in `config.go`
-- `HandlerConfig.Response` is `*bool` (nil defaults to true) — avoids negative option naming like `no_response`
+- `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
+- Response queue (`response.queue` / `response.api_key`) is optional — required only when any handler has `response: true`
 
 ## Key Design Decisions
 
