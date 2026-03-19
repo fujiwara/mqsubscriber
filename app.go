@@ -199,7 +199,7 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	result := handler.Execute(ctx, msg)
 
 	switch {
-	case result.Err != nil && handler.shouldIgnoreResponse(result.ExitCode):
+	case result.Err != nil && handler.shouldIgnoreResponse(result):
 		// response_ignore matched: suppress response, delete message
 		handler.logger.InfoContext(ctx, "response ignored by exit code",
 			"messageId", msgID, "exit_code", result.ExitCode)

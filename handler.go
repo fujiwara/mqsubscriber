@@ -150,12 +150,12 @@ func (h *Handler) Release() {
 	<-h.sem
 }
 
-// shouldIgnoreResponse returns true if the exit code matches the response_ignore condition.
-func (h *Handler) shouldIgnoreResponse(exitCode int) bool {
+// shouldIgnoreResponse returns true if the command result matches the response_ignore condition.
+func (h *Handler) shouldIgnoreResponse(result *CommandResult) bool {
 	if h.responseIgnore == nil || h.responseIgnore.ExitCode == nil {
 		return false
 	}
-	return exitCode == *h.responseIgnore.ExitCode
+	return result.ExitCode == *h.responseIgnore.ExitCode
 }
 
 // buildResponse constructs a response message from the original request.

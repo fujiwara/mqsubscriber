@@ -335,7 +335,7 @@ func TestShouldIgnoreResponse(t *testing.T) {
 			Match:   map[string]string{"k": "v"},
 			Command: []string{"echo"},
 		}, slog.Default(), m)
-		if h.shouldIgnoreResponse(99) {
+		if h.shouldIgnoreResponse(&CommandResult{ExitCode: 99}) {
 			t.Error("expected false when responseIgnore is nil")
 		}
 	})
@@ -349,7 +349,7 @@ func TestShouldIgnoreResponse(t *testing.T) {
 			Response:       true,
 			ResponseIgnore: &ResponseIgnoreConfig{ExitCode: &exitCode},
 		}, slog.Default(), m)
-		if !h.shouldIgnoreResponse(99) {
+		if !h.shouldIgnoreResponse(&CommandResult{ExitCode: 99}) {
 			t.Error("expected true for matching exit code")
 		}
 	})
@@ -363,7 +363,7 @@ func TestShouldIgnoreResponse(t *testing.T) {
 			Response:       true,
 			ResponseIgnore: &ResponseIgnoreConfig{ExitCode: &exitCode},
 		}, slog.Default(), m)
-		if h.shouldIgnoreResponse(1) {
+		if h.shouldIgnoreResponse(&CommandResult{ExitCode: 1}) {
 			t.Error("expected false for non-matching exit code")
 		}
 	})
