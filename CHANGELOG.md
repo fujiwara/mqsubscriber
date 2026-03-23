@@ -3,6 +3,9 @@
 ## [v0.1.1](https://github.com/fujiwara/simplemq-subscriber/compare/v0.1.0...v0.1.1) - 2026-03-23
 - Improve logging visibility for message processing by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/12
 
+## [v0.1.1](https://github.com/fujiwara/simplemq-subscriber/compare/v0.1.0...v0.1.1) - 2026-03-23
+- Improve logging visibility for message processing by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/12
+
 ## [v0.1.0](https://github.com/fujiwara/simplemq-subscriber/compare/v0.0.3...v0.1.0) - 2026-03-22
 - Update README: architecture diagrams, section order, and observability details by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/6
 - Add end-to-end RPC example with Docker Compose by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/8
