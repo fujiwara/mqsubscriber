@@ -194,7 +194,7 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	)
 	defer span.End()
 
-	handler.logger.DebugContext(ctx, "handling message", "messageId", msgID)
+	handler.logger.InfoContext(ctx, "handling message", "messageId", msgID)
 
 	result := handler.Execute(ctx, msg)
 
@@ -208,13 +208,15 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 		// fire-and-forget failure: don't delete, will be redelivered
 		span.RecordError(result.Err)
 		span.SetStatus(codes.Error, "command execution failed")
-		handler.logger.ErrorContext(ctx, "command execution failed",
-			"messageId", msgID, "error", result.Err)
+		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
+			"messageId", msgID, "error", result.Err, "exit_code", result.ExitCode)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		return
 
 	case result.Err != nil && handler.response:
 		// response mode failure: send error response, then delete
+		handler.logger.InfoContext(ctx, "command execution failed, sending error response",
+			"messageId", msgID, "error", result.Err, "exit_code", result.ExitCode)
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
 		if err := a.publishResponse(ctx, span, handler, resp, msgID); err != nil {
 			return
@@ -222,6 +224,8 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 
 	case handler.response:
 		// response mode success: send success response, then delete
+		handler.logger.InfoContext(ctx, "command execution succeeded, sending success response",
+			"messageId", msgID)
 		resp := handler.buildResponse(msg, result.Stdout, "success", 0)
 		if err := a.publishResponse(ctx, span, handler, resp, msgID); err != nil {
 			return
@@ -229,11 +233,12 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 
 	default:
 		// fire-and-forget success: just delete
+		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", msgID)
 	}
 
 	a.deleteMessage(ctx, msgID)
 	a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-	handler.logger.DebugContext(ctx, "message processed", "messageId", msgID)
+	handler.logger.InfoContext(ctx, "message processed", "messageId", msgID)
 }
 
 // publishResponse injects trace context, publishes a response message, and
