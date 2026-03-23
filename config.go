@@ -76,6 +76,8 @@ type HandlerConfig struct {
 	MaxConcurrency int                   `json:"max_concurrency"`
 	Response       bool                  `json:"response"`
 	ResponseIgnore *ResponseIgnoreConfig `json:"response_ignore"`
+	LogMessage     string                `json:"log_message"`
+	LogBodyFields  []string              `json:"log_body_fields"`
 }
 
 // GetTimeout returns the command timeout as a time.Duration.

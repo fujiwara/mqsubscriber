@@ -39,6 +39,8 @@ go fmt ./...
 - Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`) are defined in `config.go`
 - `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
 - `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is deleted but no response published). Requires `response: true`
+- `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
+- `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
 - Response queue (`response.queue` / `response.api_key`) is optional — required only when any handler has `response: true`
 
 ## Key Design Decisions

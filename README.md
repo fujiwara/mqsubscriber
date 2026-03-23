@@ -162,9 +162,23 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
       blocking: false,       // run in background goroutine
       max_concurrency: 5,    // max concurrent executions (default: 1)
       // response defaults to false (fire-and-forget)
+      log_message: "processing notification",  // optional: custom log message per handler
+      log_body_fields: ["notification_id", "channel"],  // optional: JSON body fields to include in log
     },
   ],
 }
+```
+
+### Custom Handler Logging
+
+Each handler can emit a custom log message when it starts processing a message, with selected fields extracted from the JSON body.
+
+- `log_message` (string): Custom message to log at Info level. If not set, no custom log is emitted.
+- `log_body_fields` ([]string): List of top-level JSON field names to extract from the message body and include in the log as `body.<field>` attributes. Only parsed when `log_body_fields` is set. If the body is not valid JSON, a warning is logged. Missing fields are silently skipped.
+
+Example log output:
+```
+INFO processing notification  handler=notify messageId=abc123 body.notification_id=N-001 body.channel=slack
 ```
 
 ### Handler Matching

@@ -3,6 +3,7 @@ package subscriber
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"maps"
 	"os/exec"
@@ -40,6 +41,8 @@ type Handler struct {
 	logger         *slog.Logger
 	metrics        *Metrics
 	attrs          attribute.Set
+	logMessage     string
+	logBodyFields  []string
 }
 
 // NewHandler creates a Handler from config.
@@ -55,6 +58,8 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
 		maxConcurrency: cfg.GetMaxConcurrency(),
 		logger:         logger.With("handler", cfg.Name),
 		metrics:        m,
+		logMessage:     cfg.LogMessage,
+		logBodyFields:  cfg.LogBodyFields,
 		attrs: attribute.NewSet(
 			attribute.String("handler", cfg.Name),
 		),
@@ -211,6 +216,28 @@ func headersToEnv(headers map[string]string) []string {
 		env = append(env, envKey+"="+v)
 	}
 	return env
+}
+
+// logHandlerMessage logs a custom message with selected body fields.
+func (h *Handler) logHandlerMessage(ctx context.Context, msg *mqbridge.Message, msgID string) {
+	if h.logMessage == "" {
+		return
+	}
+	attrs := []any{"messageId", msgID}
+	if len(h.logBodyFields) > 0 {
+		var body map[string]any
+		if err := json.Unmarshal(msg.Body, &body); err != nil {
+			h.logger.WarnContext(ctx, "failed to parse message body as JSON for log_body_fields",
+				"messageId", msgID, "error", err)
+		} else {
+			for _, field := range h.logBodyFields {
+				if v, ok := body[field]; ok {
+					attrs = append(attrs, "body."+field, v)
+				}
+			}
+		}
+	}
+	h.logger.InfoContext(ctx, h.logMessage, attrs...)
 }
 
 func copyHeaders(src map[string]string) map[string]string {

@@ -391,6 +391,87 @@ func TestTailBytes(t *testing.T) {
 	}
 }
 
+func TestLogHandlerMessage(t *testing.T) {
+	m := newTestMetrics(t)
+
+	t.Run("with log_message and log_body_fields", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{
+			Name:          "test",
+			Match:         map[string]string{"x-type": "order"},
+			Command:       []string{"echo"},
+			LogMessage:    "processing order",
+			LogBodyFields: []string{"order_id", "status"},
+		}, slog.Default(), m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`{"order_id":"ORD-001","status":"pending","secret":"s3cret"}`),
+		}
+		// Should not panic; log output is visual confirmation
+		h.logHandlerMessage(t.Context(), msg, "msg-1")
+	})
+
+	t.Run("with log_message only (no body fields)", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{
+			Name:       "test",
+			Match:      map[string]string{"x-type": "order"},
+			Command:    []string{"echo"},
+			LogMessage: "got a message",
+		}, slog.Default(), m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`not json`),
+		}
+		// No body parsing, should not warn
+		h.logHandlerMessage(t.Context(), msg, "msg-2")
+	})
+
+	t.Run("no log_message configured", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{
+			Name:    "test",
+			Match:   map[string]string{"x-type": "order"},
+			Command: []string{"echo"},
+		}, slog.Default(), m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`{"order_id":"ORD-001"}`),
+		}
+		// Should be a no-op
+		h.logHandlerMessage(t.Context(), msg, "msg-3")
+	})
+
+	t.Run("invalid JSON body with log_body_fields", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{
+			Name:          "test",
+			Match:         map[string]string{"x-type": "order"},
+			Command:       []string{"echo"},
+			LogMessage:    "process",
+			LogBodyFields: []string{"order_id"},
+		}, slog.Default(), m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`not json`),
+		}
+		// Should warn but not panic
+		h.logHandlerMessage(t.Context(), msg, "msg-4")
+	})
+
+	t.Run("missing field in body", func(t *testing.T) {
+		h := NewHandler(HandlerConfig{
+			Name:          "test",
+			Match:         map[string]string{"x-type": "order"},
+			Command:       []string{"echo"},
+			LogMessage:    "process",
+			LogBodyFields: []string{"nonexistent"},
+		}, slog.Default(), m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`{"order_id":"ORD-001"}`),
+		}
+		// Should log without the missing field
+		h.logHandlerMessage(t.Context(), msg, "msg-5")
+	})
+}
+
 func TestHeadersToEnv(t *testing.T) {
 	env := headersToEnv(map[string]string{
 		"rabbitmq.routing_key":     "test.key",

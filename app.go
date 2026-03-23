@@ -195,6 +195,7 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	defer span.End()
 
 	handler.logger.InfoContext(ctx, "handling message", "messageId", msgID)
+	handler.logHandlerMessage(ctx, msg, string(msgID))
 
 	result := handler.Execute(ctx, msg)
 
