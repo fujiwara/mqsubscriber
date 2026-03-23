@@ -104,7 +104,7 @@ func (a *App) Run(ctx context.Context) error {
 			slog.Info("stopping subscriber, waiting for in-flight handlers")
 			a.wg.Wait()
 			slog.Info("subscriber stopped")
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 			if err := a.poll(ctx); err != nil {
 				slog.Error("poll error", "error", err)
