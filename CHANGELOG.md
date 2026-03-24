@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.2.1](https://github.com/fujiwara/simplemq-subscriber/compare/v0.2.0...v0.2.1) - 2026-03-24
+- Log command stderr line by line by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/18
+
 ## [v0.2.0](https://github.com/fujiwara/simplemq-subscriber/compare/v0.1.1...v0.2.0) - 2026-03-23
 - Fix graceful shutdown returning context canceled error by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/15
 - Add log_message and log_body_fields to handler config by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/17
