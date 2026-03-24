@@ -115,7 +115,9 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	h.metrics.commandDuration.Record(ctx, duration, metric.WithAttributeSet(h.attrs))
 
 	if stderr.Len() > 0 {
-		h.logger.InfoContext(ctx, "command stderr", "stderr", stderr.String())
+		for line := range strings.SplitSeq(strings.TrimRight(stderr.String(), "\n"), "\n") {
+			h.logger.InfoContext(ctx, line)
+		}
 	}
 
 	result := &CommandResult{
