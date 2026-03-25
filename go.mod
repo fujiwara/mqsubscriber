@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/alecthomas/kong v1.14.0
 	github.com/fujiwara/jsonnet-armed v0.1.1
-	github.com/fujiwara/mqbridge v0.1.0
+	github.com/fujiwara/mqbridge v0.3.1
 	github.com/fujiwara/sakura-secrets-cli v0.3.0
 	github.com/fujiwara/simplemq-cli v0.7.1
 	github.com/fujiwara/sloghandler v0.1.0
