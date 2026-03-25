@@ -246,6 +246,9 @@ func (c *Config) validateSimpleMQ() error {
 	if c.Request.APIKey == "" {
 		return fmt.Errorf("request.api_key is required")
 	}
+	if c.Response.ReplyTo {
+		return fmt.Errorf("response.reply_to is only supported with rabbitmq backend")
+	}
 	return nil
 }
 

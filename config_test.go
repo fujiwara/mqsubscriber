@@ -62,6 +62,17 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "simplemq reply_to not supported",
+			config: Config{
+				Request:  RequestConfig{Queue: "q", APIKey: "k"},
+				Response: ResponseConfig{ReplyTo: true},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "missing request queue",
 			config: Config{
 				Request: RequestConfig{APIKey: "k"},
