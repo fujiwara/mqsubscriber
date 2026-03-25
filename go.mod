@@ -7,7 +7,7 @@ require (
 	github.com/fujiwara/jsonnet-armed v0.1.1
 	github.com/fujiwara/mqbridge v0.1.0
 	github.com/fujiwara/sakura-secrets-cli v0.3.0
-	github.com/fujiwara/simplemq-cli v0.7.1
+	github.com/fujiwara/simplemq-cli v0.8.0
 	github.com/fujiwara/sloghandler v0.1.0
 	github.com/sacloud/simplemq-api-go v0.5.0
 	go.opentelemetry.io/otel v1.42.0
