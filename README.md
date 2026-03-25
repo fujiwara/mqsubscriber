@@ -1,12 +1,12 @@
-# simplemq-subscriber
+# mqsubscriber
 
-A daemon that subscribes to [SAKURA Cloud SimpleMQ](https://manual.sakura.ad.jp/cloud/appliance/simplemq/index.html) queues, dispatches messages to external commands based on header matching, and publishes results back to a response queue.
+A daemon that subscribes to message queues ([SAKURA Cloud SimpleMQ](https://manual.sakura.ad.jp/cloud/appliance/simplemq/index.html) or [RabbitMQ](https://www.rabbitmq.com/)), dispatches messages to external commands based on header matching, and publishes results back to a response queue.
 
 Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge) for bridging on-premises RabbitMQ messaging to the cloud.
 
 ## Architecture
 
-**Basic usage (SimpleMQ only):**
+**SimpleMQ backend (poll-based):**
 
 ```
 ┌────────────────────────────────────┐
@@ -16,7 +16,7 @@ Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge) for bridg
          │                  │
          ▼                  │
 ┌────────────────────────────────────┐
-│       simplemq-subscriber          │
+│          mqsubscriber              │
 │  poll → match → execute → publish  │
 └────────────────┬───────────────────┘
                  │
@@ -29,7 +29,30 @@ Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge) for bridg
           └──────────────┘
 ```
 
-**With [mqbridge](https://github.com/fujiwara/mqbridge) (RabbitMQ integration):**
+**RabbitMQ backend (push-based):**
+
+```
+┌────────────────────────────────────┐
+│            RabbitMQ                │
+│  [request queue]  [response queue] │
+└────────┬──────────────────▲────────┘
+         │ consume          │ publish
+         ▼                  │
+┌────────────────────────────────────┐
+│          mqsubscriber              │
+│  recv → match → execute → publish  │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+          ┌──────────────┐
+          │   command    │
+          │  stdin: body │
+          │  env: headers│
+          │  stdout: resp│
+          └──────────────┘
+```
+
+**With [mqbridge](https://github.com/fujiwara/mqbridge) (SimpleMQ + RabbitMQ bridging):**
 
 ```
            On-premises                Cloud (SAKURA Cloud)
@@ -46,14 +69,15 @@ Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge) for bridg
                │  │
                ▼  │
         ┌──────────────────────────────┐
-        │  SimpleMQ + subscriber       │
-        │  (same as above)             │
+        │  SimpleMQ + mqsubscriber     │
         └──────────────────────────────┘
 ```
 
 ## Message Format
 
-simplemq-subscriber uses the same wire format as [mqbridge](https://github.com/fujiwara/mqbridge) (`mqbridge.Message`). Messages on SimpleMQ are base64-encoded JSON with the following structure:
+### SimpleMQ backend
+
+mqsubscriber uses the same wire format as [mqbridge](https://github.com/fujiwara/mqbridge) (`mqbridge.Message`). Messages on SimpleMQ are base64-encoded JSON with the following structure:
 
 ```json
 {
@@ -71,56 +95,62 @@ simplemq-subscriber uses the same wire format as [mqbridge](https://github.com/f
 - `body`: The message payload. Plain string if valid UTF-8, or base64-encoded for binary data
 - `body_encoding`: Set to `"base64"` when the body is base64-encoded (binary-safe). Omitted for plain text
 
+### RabbitMQ backend
+
+Messages are native AMQP deliveries. AMQP metadata (exchange, routing key, reply-to, etc.) and custom headers are mapped to `rabbitmq.*` headers internally, providing the same handler interface regardless of backend.
+
 ### Message flow detail
 
-1. **Receive**: SimpleMQ delivers base64-encoded content → simplemq-subscriber decodes it → `mqbridge.UnmarshalMessage()` parses the JSON into `mqbridge.Message` (headers + body)
+1. **Receive**: The backend delivers a message → mqsubscriber parses it into headers + body
 2. **Dispatch**: The `headers` are used for handler matching (e.g., match on `rabbitmq.routing_key`)
-3. **Execute**: `body` is passed to the command's stdin. `headers` are available as `SIMPLEMQ_HEADER_*` environment variables
-4. **Respond**: Command stdout becomes the new `body`. If `rabbitmq.reply_to` is present, the response is routed to the reply queue via the default exchange (RPC pattern). Otherwise, the original headers are preserved as-is
-5. **Publish**: The response is serialized via `mqbridge.MarshalMessage()` → base64-encoded → sent to the response queue
-
-This ensures full round-trip compatibility: RabbitMQ → mqbridge → SimpleMQ → simplemq-subscriber → SimpleMQ → mqbridge → RabbitMQ.
+3. **Execute**: `body` is passed to the command's stdin. `headers` are available as `MQ_HEADER_*` environment variables
+4. **Respond**: Command stdout becomes the new `body`. If `rabbitmq.reply_to` is present, the response is routed to the reply queue via the default exchange (RPC pattern)
+5. **Publish**: The response is sent to the response queue via the same backend
 
 ## Installation
 
 ### Homebrew
 
 ```bash
-brew install fujiwara/tap/simplemq-subscriber
+brew install fujiwara/tap/mqsubscriber
 ```
 
 ### Binary releases
 
-Download the latest binary from [GitHub Releases](https://github.com/fujiwara/simplemq-subscriber/releases).
+Download the latest binary from [GitHub Releases](https://github.com/fujiwara/mqsubscriber/releases).
 
 ### Go install
 
 ```bash
-go install github.com/fujiwara/simplemq-subscriber/cmd/simplemq-subscriber@latest
+go install github.com/fujiwara/mqsubscriber/cmd/mqsubscriber@latest
 ```
 
 ## Usage
 
 ```bash
 # Run the subscriber daemon
-simplemq-subscriber run -c config.jsonnet
+mqsubscriber run -c config.jsonnet
 
 # Validate configuration
-simplemq-subscriber validate -c config.jsonnet
+mqsubscriber validate -c config.jsonnet
 
 # Render configuration as JSON
-simplemq-subscriber render -c config.jsonnet
+mqsubscriber render -c config.jsonnet
 ```
 
 ### Options
 
-- `-c`, `--config` (required): Config file path (Jsonnet/JSON). Env: `SIMPLEMQ_SUBSCRIBER_CONFIG`
-- `--log-format`: Log format (`text` or `json`, default: `text`). Env: `SIMPLEMQ_SUBSCRIBER_LOG_FORMAT`
-- `--log-level`: Log level (`debug`, `info`, `warn`, `error`, default: `info`). Env: `SIMPLEMQ_SUBSCRIBER_LOG_LEVEL`
+- `-c`, `--config` (required): Config file path (Jsonnet/JSON). Env: `MQSUBSCRIBER_CONFIG`
+- `--log-format`: Log format (`text` or `json`, default: `text`). Env: `MQSUBSCRIBER_LOG_FORMAT`
+- `--log-level`: Log level (`debug`, `info`, `warn`, `error`, default: `info`). Env: `MQSUBSCRIBER_LOG_LEVEL`
 
 ## Configuration
 
 Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also supported). Jsonnet evaluation is powered by [jsonnet-armed](https://github.com/fujiwara/jsonnet-armed), which provides built-in functions for environment variables, hashing, and more. See the [jsonnet-armed README](https://github.com/fujiwara/jsonnet-armed#readme) for the full list of available functions.
+
+Only one of `simplemq` or `rabbitmq` can be configured per process.
+
+### SimpleMQ backend
 
 ```jsonnet
 {
@@ -137,6 +167,42 @@ Configuration is written in [Jsonnet](https://jsonnet.org/) (plain JSON is also 
     queue: "response-queue",
     api_key: must_env("RESPONSE_API_KEY"),
   },
+  handlers: [
+    // ... (see Handler Configuration below)
+  ],
+}
+```
+
+### RabbitMQ backend
+
+```jsonnet
+{
+  rabbitmq: {
+    url: must_env("AMQP_URL"),  // e.g. "amqp://user:pass@host:5672/"
+  },
+  request: {
+    queue: "request-queue",
+    exchange: "my-exchange",       // optional
+    exchange_type: "direct",       // optional, default: "direct"
+    routing_keys: ["deploy", "notify"],  // optional, default: ["#"]
+    exchange_passive: false,       // optional, default: false
+  },
+  // response queue is optional — required only when any handler has response: true
+  response: {
+    queue: "response-queue",
+    exchange: "",          // optional, default: "" (default exchange)
+    routing_key: "",       // optional, default: response queue name
+  },
+  handlers: [
+    // ... (see Handler Configuration below)
+  ],
+}
+```
+
+### Handler Configuration
+
+```jsonnet
+{
   handlers: [
     {
       name: "deploy",
@@ -189,17 +255,21 @@ INFO processing notification  handler=notify messageId=abc123 body.notification_
 
 ### Blocking vs Non-blocking
 
-- **blocking: true** — The subscriber waits for the command to complete before polling the next message
-- **blocking: false** — The command runs in a goroutine. The subscriber immediately proceeds to the next message. When `max_concurrency` is reached, the subscriber blocks until a slot is available (other subscribers can pick up messages in the meantime)
+- **blocking: true** — The subscriber waits for the command to complete before processing the next message
+- **blocking: false** — The command runs in a goroutine. The subscriber immediately proceeds to the next message. When `max_concurrency` is reached, the subscriber blocks until a slot is available
 
 ### Command Execution
 
 - Message body is passed via **stdin**
-- Message headers are passed as environment variables with the prefix `SIMPLEMQ_HEADER_` (dots and hyphens are converted to underscores, uppercased)
-  - e.g., `rabbitmq.routing_key` → `SIMPLEMQ_HEADER_RABBITMQ_ROUTING_KEY`
+- Message headers are passed as environment variables with the prefix `MQ_HEADER_` (dots and hyphens are converted to underscores, uppercased)
+  - e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
-- If the command fails (non-zero exit) and `response` is disabled, the message is **not deleted** and will be redelivered after the visibility timeout
+- If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted for redelivery, RabbitMQ: nack with requeue)
+
+### Response Publishing
+
+Response messages are published with retry (3 attempts, exponential backoff: 1s, 2s, 4s). If all retries are exhausted, the request message is still acknowledged to prevent command re-execution on redelivery.
 
 ### Response Status Headers
 
@@ -210,12 +280,12 @@ Response messages include status headers to indicate success or failure:
 | `x-status` | `success` or `error` |
 | `x-exit-code` | Exit code (only set on error, e.g. `1`) |
 
-When the message originates from RabbitMQ (`rabbitmq.reply_to` is present), these headers use the `rabbitmq.header.` prefix (e.g. `rabbitmq.header.x-status`) so they are mapped to AMQP headers by mqbridge.
+When the message originates from RabbitMQ (has `rabbitmq.exchange` header), these headers use the `rabbitmq.header.` prefix (e.g. `rabbitmq.header.x-status`) so they are mapped to AMQP headers.
 
 **Error handling by `response` setting:**
 
-- **`response: true`**: On command failure, an error response is sent with `x-status: error`, the last 4KB of stderr as the body, and the message is deleted. This ensures the caller is not left waiting indefinitely. Requires `response` queue to be configured.
-- **`response: false`** (default): On command failure, no response is sent and the message is **not deleted** (will be redelivered for retry). No response queue is needed.
+- **`response: true`**: On command failure, an error response is sent with `x-status: error`, the last 4KB of stderr as the body, and the message is acknowledged. This ensures the caller is not left waiting indefinitely.
+- **`response: false`** (default): On command failure, no response is sent and the message is **nacked** for redelivery. No response queue is needed.
 
 ### Suppressing Response (`response_ignore`)
 
@@ -234,7 +304,7 @@ When `response: true` is set, you can selectively suppress the response based on
 
 When the command exits with the specified `exit_code`:
 - No response message is published
-- The request message is deleted (the command already ran)
+- The request message is acknowledged (the command already ran)
 - The event is logged at Info level
 
 For any other exit code, the normal behavior applies (success response for exit 0, error response for other non-zero codes).
@@ -250,7 +320,7 @@ When a message contains a `rabbitmq.reply_to` header (set by RabbitMQ RPC client
 
 This enables the standard RabbitMQ RPC pattern: the response is delivered directly to the caller's exclusive reply queue via the default exchange.
 
-If `rabbitmq.reply_to` is **not present**, the original headers are preserved as-is in the response. This allows simplemq-subscriber to be used independently of RabbitMQ, where messages are simply forwarded between SimpleMQ queues without RPC routing.
+If `rabbitmq.reply_to` is **not present**, the request routing headers are removed from the response. The publisher uses the configured response queue instead.
 
 ### Jsonnet Built-in Functions
 
@@ -278,9 +348,9 @@ Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/t
 
 | Span | Description | Key Attributes |
 |------|-------------|----------------|
-| `simplemq_subscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking`, `request.header.*` |
-| `simplemq_subscriber.execute` | Command execution | `handler`, `command` |
-| `simplemq_subscriber.publish` | Response publish | `queue`, `response.header.*` |
+| `mqsubscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking`, `request.header.*` |
+| `mqsubscriber.execute` | Command execution | `handler`, `command` |
+| `mqsubscriber.publish` | Response publish | `queue`, `response.header.*` |
 
 Errors (command failure, publish failure) are recorded on spans with `Error` status.
 
@@ -288,11 +358,11 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 
 | Metric | Type | Description | Attributes |
 |--------|------|-------------|------------|
-| `simplemq_subscriber.messages.received` | Counter | Messages received from request queue | — |
-| `simplemq_subscriber.messages.processed` | Counter | Messages successfully processed | `handler` |
-| `simplemq_subscriber.messages.errors` | Counter | Message processing errors | `handler` |
-| `simplemq_subscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
-| `simplemq_subscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
+| `mqsubscriber.messages.received` | Counter | Messages received from request queue | — |
+| `mqsubscriber.messages.processed` | Counter | Messages successfully processed | `handler` |
+| `mqsubscriber.messages.errors` | Counter | Message processing errors | `handler` |
+| `mqsubscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
+| `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 
 ## Examples
 

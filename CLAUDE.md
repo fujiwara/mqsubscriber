@@ -1,15 +1,18 @@
-# simplemq-subscriber
+# mqsubscriber
 
-SimpleMQ subscriber daemon that polls messages from SAKURA Cloud SimpleMQ, dispatches them to external commands based on header matching, and optionally publishes results back to a response queue. Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge).
+MQ subscriber daemon that receives messages from SAKURA Cloud SimpleMQ or RabbitMQ, dispatches them to external commands based on header matching, and optionally publishes results back to a response queue. Designed to work with [mqbridge](https://github.com/fujiwara/mqbridge).
 
 ## Build & Test
 
 ```bash
 # Build
-go build ./cmd/simplemq-subscriber
+go build ./cmd/mqsubscriber
 
 # Test (no external services required — uses simplemq-cli/localserver in-process)
 go test -v -race ./...
+
+# RabbitMQ integration tests (requires Docker)
+go test -v -race -tags integration ./...
 
 # Format (must run before commit)
 go fmt ./...
@@ -17,43 +20,57 @@ go fmt ./...
 
 ## Architecture
 
-- `app.go` — App struct, main poll loop, message dispatch (blocking/non-blocking), graceful shutdown
+- `queue.go` — QueueClient interface (Receive/Publish/Ack/Nack/Close), QueueMessage type
+- `queue_simplemq.go` — SimpleMQ QueueClient implementations (SimpleMQReceiver, SimpleMQPublisher)
+- `queue_rabbitmq.go` — RabbitMQ QueueClient implementations (RabbitMQReceiver, RabbitMQPublisher)
+- `app.go` — App struct, main loop (poll-based for SimpleMQ, push-based for RabbitMQ), message dispatch (blocking/non-blocking), graceful shutdown
 - `handler.go` — Handler matching (exact header match), command execution, semaphore concurrency control
-- `config.go` — Config structs, Jsonnet loading via `jsonnet-armed`, validation, default constants
+- `config.go` — Config structs, Jsonnet loading via `jsonnet-armed`, validation, default constants, backend type detection
 - `cli.go` — CLI definition (`kong`), logger setup, `RunCLI()` entry point
 - `otel.go` — OpenTelemetry metrics + traces, W3C Trace Context propagation, `headerCarrier`
 - `trace_log.go` — `slog.Handler` wrapper that injects `trace_id`/`span_id` into log output
 - `secretmanager.go` — SAKURA Cloud Secret Manager native function for Jsonnet `secret()`
 - `version.go` — Version variable for tagpr
-- `cmd/simplemq-subscriber/main.go` — Minimal main, signal handling
+- `cmd/mqsubscriber/main.go` — Minimal main, signal handling
 
 ## Conventions
 
-- Package name is `subscriber` (not `simplemq-subscriber` — invalid Go identifier)
+- Package name is `subscriber` (not `mqsubscriber` — invalid Go identifier)
 - CLI logic lives in `subscriber` package (not `main`) for testability
 - Config uses Jsonnet via `jsonnet-armed` which provides `must_env()`, `env()`, `secret()`, hash functions — do not use `std.extVar()`
 - Unknown fields in config JSON cause validation errors (`DisallowUnknownFields`)
+- Only one MQ backend per process — `simplemq` and `rabbitmq` config sections are mutually exclusive
+- QueueClient interface abstracts backend differences — app.go is backend-agnostic
 - SimpleMQ message content is base64-encoded; message body uses mqbridge wire format (JSON with headers/body/body_encoding)
+- RabbitMQ messages are native AMQP deliveries; metadata mapped to `rabbitmq.*` headers by `messageFromDelivery`
 - Import `mqbridge.Message` directly — do not copy the struct
 - SimpleMQ default API URL comes from `simplemq.DefaultMessageAPIRootURL` (SDK), not hardcoded
 - Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`) are defined in `config.go`
 - `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
-- `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is deleted but no response published). Requires `response: true`
+- `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is acked but no response published). Requires `response: true`
 - `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
 - `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
-- Response queue (`response.queue` / `response.api_key`) is optional — required only when any handler has `response: true`
+- Response queue is optional — required only when any handler has `response: true`
+- Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
+- Environment variable prefix for headers is `MQ_HEADER_` (not `SIMPLEMQ_HEADER_`)
 
 ## Key Design Decisions
 
-- **Graceful shutdown**: `context.WithoutCancel(ctx)` is used at the poll level (`msgCtx`) so that all in-flight work (command execution → response publish → request delete) completes atomically even during shutdown. `sync.WaitGroup` tracks non-blocking goroutines.
+- **QueueClient abstraction**: `QueueClient` interface with `Receive`/`Publish`/`Ack`/`Nack`/`Close` methods. SimpleMQ uses HTTP polling; RabbitMQ uses AMQP push via `ch.Consume()`. The `internal any` field in `QueueMessage` carries backend-specific data (SimpleMQ MessageId, RabbitMQ *amqp.Delivery).
+- **Graceful shutdown**: `context.WithoutCancel(ctx)` is used so that all in-flight work (command execution → response publish → ack) completes atomically even during shutdown. `sync.WaitGroup` tracks non-blocking goroutines.
+- **Poll vs push loops**: SimpleMQ uses `runPollLoop` (ticker + drain). RabbitMQ uses `runPushLoop` (blocking Receive in a loop). Both share the same `poll()` → `handleMessage()` path.
 - **Trace propagation**: W3C `traceparent`/`tracestate` headers are embedded in mqbridge message headers. Falls back to `rabbitmq.header.traceparent` because mqbridge prefixes custom AMQP headers with `rabbitmq.header.`.
-- **Blocking vs non-blocking handlers**: Blocking handlers process inline in the poll loop. Non-blocking handlers use goroutines with a semaphore (`max_concurrency`); `Acquire()` uses the cancellable context so shutdown can interrupt the semaphore wait.
+- **Blocking vs non-blocking handlers**: Blocking handlers process inline. Non-blocking handlers use goroutines with a semaphore (`max_concurrency`); `Acquire()` uses the cancellable context so shutdown can interrupt the semaphore wait.
 - **Command stderr**: Logged at Info level (not Warn) because commands must use stderr for logging since stdout is captured as response body.
-- **OpenTelemetry**: Metrics and traces are enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Service name is fixed to `simplemq-subscriber`.
+- **OpenTelemetry**: Metrics and traces are enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Service name is `mqsubscriber`.
+- **RabbitMQ reconnection**: Exponential backoff (initial 1s, max 30s), same pattern as mqbridge.
+- **RabbitMQ prefetch**: Set to the sum of all handlers' `max_concurrency` to prevent over-fetching.
+- **Non-RPC response routing**: `buildResponse` removes `rabbitmq.exchange`/`rabbitmq.routing_key` from non-RPC responses so the publisher uses the configured response queue instead of routing back to the request exchange.
 
 ## Testing
 
-- Integration tests use `github.com/fujiwara/simplemq-cli/localserver` (in-process SimpleMQ mock) — no external services needed
+- SimpleMQ tests use `github.com/fujiwara/simplemq-cli/localserver` (in-process SimpleMQ mock) — no external services needed
+- RabbitMQ integration tests use `testcontainers-go` (Docker required) — gated by `//go:build integration` build tag
 - `TestMain` in `app_test.go` calls `setupOTelProviders` so traces are exported when `OTEL_EXPORTER_OTLP_ENDPOINT` is set during `go test`
 - Use `t.Context()` instead of `context.Background()` in tests
 
@@ -62,12 +79,14 @@ go fmt ./...
 | Library | Purpose |
 |---------|---------|
 | `github.com/alecthomas/kong` | CLI parser |
-| `github.com/fujiwara/mqbridge` | Message format (`mqbridge.Message`, marshal/unmarshal) |
+| `github.com/fujiwara/mqbridge` | Message format (`mqbridge.Message`, marshal/unmarshal, header constants) |
 | `github.com/fujiwara/jsonnet-armed` | Jsonnet config evaluation with built-in functions |
 | `github.com/fujiwara/simplemq-cli` | SimpleMQ local server for testing |
 | `github.com/fujiwara/sloghandler` | Structured log handler (colored text with source) |
+| `github.com/rabbitmq/amqp091-go` | RabbitMQ AMQP client |
 | `github.com/sacloud/simplemq-api-go` | SimpleMQ API client |
 | `github.com/sacloud/secretmanager-api-go` | SAKURA Cloud Secret Manager client |
+| `github.com/testcontainers/testcontainers-go` | RabbitMQ integration tests (Docker) |
 | `go.opentelemetry.io/otel` | OpenTelemetry API, SDK, exporters (metrics + traces) |
 
 ## Release
