@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.3.0](https://github.com/fujiwara/mqsubscriber/compare/v0.2.3...v0.3.0) - 2026-03-25
+- Document response.reply_to mode and fix README inconsistencies by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/6
+- Inherit parent process env and add per-handler env config by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/8
+
 ## [v0.2.3](https://github.com/fujiwara/mqsubscriber/compare/v0.2.2...v0.2.3) - 2026-03-25
 
 ## [v0.2.2](https://github.com/fujiwara/mqsubscriber/commits/v0.2.2) - 2026-03-25
