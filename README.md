@@ -212,6 +212,9 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
         "rabbitmq.header.x-env": "production",
       },
       command: ["/usr/local/bin/deploy.sh"],
+      env: {              // optional: custom environment variables for this handler
+        "DEPLOY_TARGET": "production",
+      },
       timeout: "60s",     // optional, default: 30s
       blocking: true,     // wait for completion before processing next message
       response: true,     // send response back (requires response queue or reply_to)
@@ -262,8 +265,10 @@ INFO processing notification  handler=notify messageId=abc123 body.notification_
 ### Command Execution
 
 - Message body is passed via **stdin**
-- Message headers are passed as environment variables with the prefix `MQ_HEADER_` (dots and hyphens are converted to underscores, uppercased)
-  - e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
+- Environment variables are inherited from the mqsubscriber process, with the following additions (later entries override earlier ones):
+  1. **Parent process environment** — all environment variables from the mqsubscriber process
+  2. **Handler `env`** — per-handler custom environment variables (see Handler Configuration)
+  3. **Message headers** — passed as `MQ_HEADER_*` variables (dots and hyphens are converted to underscores, uppercased). e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
 - If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted for redelivery, RabbitMQ: nack with requeue)

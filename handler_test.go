@@ -475,15 +475,15 @@ func TestLogHandlerMessage(t *testing.T) {
 	})
 }
 
-func TestHeadersToEnv(t *testing.T) {
-	env := headersToEnv(map[string]string{
+func TestBuildEnv(t *testing.T) {
+	handlerEnv := map[string]string{
+		"MY_VAR": "hello",
+	}
+	headers := map[string]string{
 		"rabbitmq.routing_key":     "test.key",
 		"rabbitmq.header.x-custom": "value",
-	})
-	expected := map[string]string{
-		"MQ_HEADER_RABBITMQ_ROUTING_KEY":     "test.key",
-		"MQ_HEADER_RABBITMQ_HEADER_X_CUSTOM": "value",
 	}
+	env := buildEnv(handlerEnv, headers)
 	envMap := make(map[string]string)
 	for _, e := range env {
 		for i, c := range e {
@@ -492,6 +492,20 @@ func TestHeadersToEnv(t *testing.T) {
 				break
 			}
 		}
+	}
+
+	// Should include parent process env (PATH should exist)
+	if _, ok := envMap["PATH"]; !ok {
+		t.Error("expected parent process PATH to be inherited")
+	}
+	// Should include handler env
+	if envMap["MY_VAR"] != "hello" {
+		t.Errorf("handler env MY_VAR: expected %q, got %q", "hello", envMap["MY_VAR"])
+	}
+	// Should include header env
+	expected := map[string]string{
+		"MQ_HEADER_RABBITMQ_ROUTING_KEY":     "test.key",
+		"MQ_HEADER_RABBITMQ_HEADER_X_CUSTOM": "value",
 	}
 	for k, v := range expected {
 		if envMap[k] != v {

@@ -113,6 +113,7 @@ type HandlerConfig struct {
 	MaxConcurrency int                   `json:"max_concurrency"`
 	Response       bool                  `json:"response"`
 	ResponseIgnore *ResponseIgnoreConfig `json:"response_ignore"`
+	Env            map[string]string     `json:"env"`
 	LogMessage     string                `json:"log_message"`
 	LogBodyFields  []string              `json:"log_body_fields"`
 }

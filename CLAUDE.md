@@ -52,6 +52,7 @@ go fmt ./...
 - `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
 - Response queue is optional — required only when any handler has `response: true`
 - Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
+- Commands inherit the parent process environment, overlaid with handler `env`, then `MQ_HEADER_*` from message headers
 - Environment variable prefix for headers is `MQ_HEADER_` (not `SIMPLEMQ_HEADER_`)
 
 ## Key Design Decisions
