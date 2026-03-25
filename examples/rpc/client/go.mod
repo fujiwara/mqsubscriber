@@ -1,4 +1,4 @@
-module github.com/fujiwara/simplemq-subscriber/examples/rpc/client
+module github.com/fujiwara/mqsubscriber/examples/rpc/client
 
 go 1.26.1
 

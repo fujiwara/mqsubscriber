@@ -46,7 +46,7 @@ services:
       dockerfile: Dockerfile.subscriber
     volumes:
       - ./subscriber.jsonnet:/etc/subscriber/config.jsonnet:ro
-    command: ["simplemq-subscriber", "--config", "/etc/subscriber/config.jsonnet"]
+    command: ["mqsubscriber", "--config", "/etc/subscriber/config.jsonnet"]
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-front:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf

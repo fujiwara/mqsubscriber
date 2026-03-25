@@ -3,7 +3,7 @@
 Demonstrates a full RabbitMQ RPC round-trip using Docker Compose:
 
 ```
-Client → RabbitMQ → mqbridge → SimpleMQ → simplemq-subscriber → SimpleMQ → mqbridge → RabbitMQ → Client
+Client → RabbitMQ → mqbridge → SimpleMQ → mqsubscriber → SimpleMQ → mqbridge → RabbitMQ → Client
 ```
 
 The client sends `"hello world"` with routing key `upper`. The subscriber runs `tr a-z A-Z` and returns `"HELLO WORLD"`. All components export OpenTelemetry traces to [otel-front](https://github.com/mesaglio/otel-front) for visualization.
@@ -40,7 +40,7 @@ The client sends RPC requests every 5 seconds and prints responses. Press Ctrl+C
 
 1. **Client** publishes a message to RabbitMQ exchange `commands` with routing key `upper`, setting `ReplyTo` and `traceparent` headers
 2. **mqbridge** (request bridge) consumes from RabbitMQ queue `rpc-request` and publishes to SimpleMQ queue `smq-request`
-3. **simplemq-subscriber** polls `smq-request`, matches the `upper` handler, pipes the message body through `tr a-z A-Z`, and publishes the result to SimpleMQ queue `smq-response`
+3. **mqsubscriber** polls `smq-request`, matches the `upper` handler, pipes the message body through `tr a-z A-Z`, and publishes the result to SimpleMQ queue `smq-response`
 4. **mqbridge** (response bridge) polls `smq-response` and routes the response back to RabbitMQ using the `ReplyTo` header
 5. **Client** receives the response on its exclusive reply queue
 

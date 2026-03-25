@@ -3,6 +3,6 @@
   request: { queue: 'smq-request', api_key: 'test-key', polling_interval: '1s' },
   response: { queue: 'smq-response', api_key: 'test-key' },
   handlers: [
-    { name: 'upper', match: { 'rabbitmq.routing_key': 'upper' }, command: ['tr', 'a-z', 'A-Z'], blocking: true },
+    { name: 'upper', match: { 'rabbitmq.routing_key': 'upper' }, command: ['tr', 'a-z', 'A-Z'], response: true },
   ],
 }
