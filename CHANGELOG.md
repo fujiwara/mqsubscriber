@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.3.1](https://github.com/fujiwara/mqsubscriber/compare/v0.3.0...v0.3.1) - 2026-03-25
+- Rename request.routing_keys to request.routing_key by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/9
+
 ## [v0.3.0](https://github.com/fujiwara/mqsubscriber/compare/v0.2.3...v0.3.0) - 2026-03-25
 - Document response.reply_to mode and fix README inconsistencies by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/6
 - Inherit parent process env and add per-handler env config by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/8
