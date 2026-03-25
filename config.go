@@ -21,9 +21,16 @@ const (
 	DefaultMaxConcurrency = 1
 )
 
+// Backend type constants.
+const (
+	BackendSimpleMQ = "simplemq"
+	BackendRabbitMQ = "rabbitmq"
+)
+
 // Config is the top-level configuration.
 type Config struct {
 	SimpleMQ SimpleMQConfig  `json:"simplemq"`
+	RabbitMQ RabbitMQConfig  `json:"rabbitmq"`
 	Request  RequestConfig   `json:"request"`
 	Response ResponseConfig  `json:"response"`
 	Handlers []HandlerConfig `json:"handlers"`
@@ -34,12 +41,23 @@ type SimpleMQConfig struct {
 	APIURL string `json:"api_url"`
 }
 
+// RabbitMQConfig holds the global RabbitMQ settings.
+type RabbitMQConfig struct {
+	URL string `json:"url"`
+}
+
 // RequestConfig defines the request (inbound) queue.
 type RequestConfig struct {
-	SimpleMQConfig         // embedded: api_url (overrides global)
+	SimpleMQConfig         // embedded: api_url (overrides global SimpleMQ)
 	Queue           string `json:"queue"`
-	APIKey          string `json:"api_key"`
-	PollingInterval string `json:"polling_interval"`
+	APIKey          string `json:"api_key"`          // SimpleMQ only
+	PollingInterval string `json:"polling_interval"` // SimpleMQ only
+
+	// RabbitMQ only
+	Exchange        string   `json:"exchange"`
+	ExchangeType    string   `json:"exchange_type"`
+	RoutingKeys     []string `json:"routing_keys"`
+	ExchangePassive bool     `json:"exchange_passive"`
 }
 
 // GetPollingInterval returns the polling interval as a time.Duration.
@@ -56,9 +74,13 @@ func (c *RequestConfig) GetPollingInterval() time.Duration {
 
 // ResponseConfig defines the response (outbound) queue.
 type ResponseConfig struct {
-	SimpleMQConfig        // embedded: api_url (overrides global)
+	SimpleMQConfig        // embedded: api_url (overrides global SimpleMQ)
 	Queue          string `json:"queue"`
-	APIKey         string `json:"api_key"`
+	APIKey         string `json:"api_key"` // SimpleMQ only
+
+	// RabbitMQ only: fixed destination (optional; if empty, uses message headers)
+	Exchange   string `json:"exchange"`
+	RoutingKey string `json:"routing_key"`
 }
 
 // ResponseIgnoreConfig defines conditions under which a response is suppressed.
@@ -135,6 +157,14 @@ func parseConfig(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// BackendType returns the MQ backend type based on configuration.
+func (c *Config) BackendType() string {
+	if c.RabbitMQ.URL != "" {
+		return BackendRabbitMQ
+	}
+	return BackendSimpleMQ
+}
+
 // needsResponseQueue returns true if any handler has response enabled.
 func (c *Config) needsResponseQueue() bool {
 	for _, h := range c.Handlers {
@@ -147,19 +177,38 @@ func (c *Config) needsResponseQueue() bool {
 
 // hasResponseQueue returns true if the response queue is configured.
 func (c *Config) hasResponseQueue() bool {
-	return c.Response.Queue != "" && c.Response.APIKey != ""
+	switch c.BackendType() {
+	case BackendRabbitMQ:
+		return c.Response.Queue != ""
+	default:
+		return c.Response.Queue != "" && c.Response.APIKey != ""
+	}
 }
 
 // Validate checks the configuration for correctness.
 func (c *Config) Validate() error {
 	c.applyDefaults()
 
+	// Backend exclusivity check
+	if c.SimpleMQ.APIURL != "" && c.RabbitMQ.URL != "" {
+		return fmt.Errorf("simplemq and rabbitmq cannot be configured simultaneously")
+	}
+
 	if c.Request.Queue == "" {
 		return fmt.Errorf("request.queue is required")
 	}
-	if c.Request.APIKey == "" {
-		return fmt.Errorf("request.api_key is required")
+
+	switch c.BackendType() {
+	case BackendRabbitMQ:
+		if err := c.validateRabbitMQ(); err != nil {
+			return err
+		}
+	default:
+		if err := c.validateSimpleMQ(); err != nil {
+			return err
+		}
 	}
+
 	if len(c.Handlers) == 0 {
 		return fmt.Errorf("at least one handler is required")
 	}
@@ -173,12 +222,31 @@ func (c *Config) Validate() error {
 	hasResponse := c.hasResponseQueue()
 
 	if needsResponse && !hasResponse {
-		return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
+		switch c.BackendType() {
+		case BackendRabbitMQ:
+			return fmt.Errorf("response.queue is required when any handler has response enabled")
+		default:
+			return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
+		}
 	}
 	if !needsResponse && hasResponse {
 		slog.Warn("response queue is configured but no handler has response enabled")
 	}
 
+	return nil
+}
+
+func (c *Config) validateSimpleMQ() error {
+	if c.Request.APIKey == "" {
+		return fmt.Errorf("request.api_key is required")
+	}
+	return nil
+}
+
+func (c *Config) validateRabbitMQ() error {
+	if c.RabbitMQ.URL == "" {
+		return fmt.Errorf("rabbitmq.url is required")
+	}
 	return nil
 }
 

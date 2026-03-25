@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 
-	app "github.com/fujiwara/simplemq-subscriber"
+	app "github.com/fujiwara/mqsubscriber"
 )
 
 func main() {

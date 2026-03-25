@@ -213,13 +213,15 @@ func TestBuildResponse(t *testing.T) {
 		}
 
 		resp := h.buildResponse(msg, []byte("output"), "success", 0)
-		if got := resp.Headers["rabbitmq.exchange"]; got != "commands" {
-			t.Errorf("exchange: expected %q, got %q", "commands", got)
+		// Non-RPC: routing headers should be removed
+		if _, ok := resp.Headers["rabbitmq.exchange"]; ok {
+			t.Error("exchange should be removed from non-RPC response")
 		}
-		if got := resp.Headers["rabbitmq.routing_key"]; got != "deploy" {
-			t.Errorf("routing_key: expected %q, got %q", "deploy", got)
+		if _, ok := resp.Headers["rabbitmq.routing_key"]; ok {
+			t.Error("routing_key should be removed from non-RPC response")
 		}
-		if got := resp.Headers["x-status"]; got != "success" {
+		// RabbitMQ origin: x-status uses rabbitmq.header prefix
+		if got := resp.Headers["rabbitmq.header.x-status"]; got != "success" {
 			t.Errorf("x-status: expected %q, got %q", "success", got)
 		}
 	})
@@ -281,10 +283,11 @@ func TestBuildResponse(t *testing.T) {
 		}
 
 		resp := h.buildResponse(msg, []byte("error output"), "error", 1)
-		if got := resp.Headers["x-status"]; got != "error" {
+		// RabbitMQ origin: x-status uses rabbitmq.header prefix
+		if got := resp.Headers["rabbitmq.header.x-status"]; got != "error" {
 			t.Errorf("x-status: expected %q, got %q", "error", got)
 		}
-		if got := resp.Headers["x-exit-code"]; got != "1" {
+		if got := resp.Headers["rabbitmq.header.x-exit-code"]; got != "1" {
 			t.Errorf("x-exit-code: expected %q, got %q", "1", got)
 		}
 		if string(resp.Body) != "error output" {
@@ -478,8 +481,8 @@ func TestHeadersToEnv(t *testing.T) {
 		"rabbitmq.header.x-custom": "value",
 	})
 	expected := map[string]string{
-		"SIMPLEMQ_HEADER_RABBITMQ_ROUTING_KEY":     "test.key",
-		"SIMPLEMQ_HEADER_RABBITMQ_HEADER_X_CUSTOM": "value",
+		"MQ_HEADER_RABBITMQ_ROUTING_KEY":     "test.key",
+		"MQ_HEADER_RABBITMQ_HEADER_X_CUSTOM": "value",
 	}
 	envMap := make(map[string]string)
 	for _, e := range env {

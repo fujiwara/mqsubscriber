@@ -2,15 +2,12 @@ package subscriber
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/fujiwara/mqbridge"
-	simplemq "github.com/sacloud/simplemq-api-go"
-	"github.com/sacloud/simplemq-api-go/apis/v1/message"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
@@ -24,31 +21,15 @@ const (
 	publishRetryBaseInterval = time.Second
 )
 
-// apiKeySource implements message.SecuritySource.
-type apiKeySource struct {
-	apiKey string
-}
-
-func (s *apiKeySource) ApiKeyAuth(_ context.Context, _ message.OperationName) (message.ApiKeyAuth, error) {
-	return message.ApiKeyAuth{Token: s.apiKey}, nil
-}
-
-func newSimpleMQClient(apiURL, apiKey string) (*message.Client, error) {
-	if apiURL == "" {
-		apiURL = simplemq.DefaultMessageAPIRootURL
-	}
-	return message.NewClient(apiURL, &apiKeySource{apiKey: apiKey})
-}
-
 // App holds the application state.
 type App struct {
-	config    *Config
-	handlers  []*Handler
-	reqClient *message.Client
-	resClient *message.Client
-	metrics   *Metrics
-	tracer    trace.Tracer
-	wg        sync.WaitGroup
+	config   *Config
+	handlers []*Handler
+	reqQueue QueueClient
+	resQueue QueueClient
+	metrics  *Metrics
+	tracer   trace.Tracer
+	wg       sync.WaitGroup
 }
 
 // New creates a new App from a config.
@@ -62,16 +43,9 @@ func New(cfg *Config) (*App, error) {
 		return nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
-	reqClient, err := newSimpleMQClient(cfg.Request.APIURL, cfg.Request.APIKey)
+	reqQueue, resQueue, err := newQueueClients(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request queue client: %w", err)
-	}
-	var resClient *message.Client
-	if cfg.hasResponseQueue() {
-		resClient, err = newSimpleMQClient(cfg.Response.APIURL, cfg.Response.APIKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create response queue client: %w", err)
-		}
+		return nil, err
 	}
 
 	var handlers []*Handler
@@ -81,26 +55,70 @@ func New(cfg *Config) (*App, error) {
 	}
 
 	return &App{
-		config:    cfg,
-		handlers:  handlers,
-		reqClient: reqClient,
-		resClient: resClient,
-		metrics:   m,
-		tracer:    newTracer(),
+		config:   cfg,
+		handlers: handlers,
+		reqQueue: reqQueue,
+		resQueue: resQueue,
+		metrics:  m,
+		tracer:   newTracer(),
 	}, nil
+}
+
+func newQueueClients(cfg *Config) (reqQueue QueueClient, resQueue QueueClient, err error) {
+	switch cfg.BackendType() {
+	case BackendRabbitMQ:
+		prefetch := totalMaxConcurrency(cfg)
+		reqQueue = NewRabbitMQReceiver(cfg, prefetch)
+		if cfg.hasResponseQueue() {
+			resQueue = NewRabbitMQPublisher(cfg)
+		}
+	default:
+		reqQueue, err = NewSimpleMQReceiver(cfg.Request.APIURL, cfg.Request.APIKey, cfg.Request.Queue)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create request queue client: %w", err)
+		}
+		if cfg.hasResponseQueue() {
+			resQueue, err = NewSimpleMQPublisher(cfg.Response.APIURL, cfg.Response.APIKey, cfg.Response.Queue)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create response queue client: %w", err)
+			}
+		}
+	}
+	return reqQueue, resQueue, nil
+}
+
+// totalMaxConcurrency returns the sum of max_concurrency across all handlers,
+// used as the RabbitMQ prefetch count.
+func totalMaxConcurrency(cfg *Config) int {
+	total := 0
+	for _, h := range cfg.Handlers {
+		total += h.GetMaxConcurrency()
+	}
+	return total
 }
 
 // Run starts the subscriber loop.
 func (a *App) Run(ctx context.Context) error {
 	logAttrs := []any{
+		"backend", a.config.BackendType(),
 		"request_queue", a.config.Request.Queue,
 		"handlers", len(a.handlers),
 	}
 	if a.config.Response.Queue != "" {
 		logAttrs = append(logAttrs, "response_queue", a.config.Response.Queue)
 	}
-	slog.Info("starting simplemq-subscriber", logAttrs...)
+	slog.Info("starting subscriber", logAttrs...)
 
+	switch a.config.BackendType() {
+	case BackendRabbitMQ:
+		return a.runPushLoop(ctx)
+	default:
+		return a.runPollLoop(ctx)
+	}
+}
+
+// runPollLoop runs the SimpleMQ polling loop with ticker-based drain.
+func (a *App) runPollLoop(ctx context.Context) error {
 	interval := a.config.Request.GetPollingInterval()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -108,14 +126,33 @@ func (a *App) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("stopping subscriber, waiting for in-flight handlers")
-			a.wg.Wait()
-			slog.Info("subscriber stopped")
-			return nil
+			return a.shutdown()
 		case <-ticker.C:
 			a.drainQueue(ctx)
 		}
 	}
+}
+
+// runPushLoop runs the RabbitMQ push-based receive loop.
+// Receive blocks until a message arrives or context is cancelled.
+func (a *App) runPushLoop(ctx context.Context) error {
+	for {
+		_, err := a.poll(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return a.shutdown()
+			}
+			slog.Error("receive error", "error", err)
+			// Continue; RabbitMQReceiver will reconnect on next Receive call.
+		}
+	}
+}
+
+func (a *App) shutdown() error {
+	slog.Info("stopping subscriber, waiting for in-flight handlers")
+	a.wg.Wait()
+	slog.Info("subscriber stopped")
+	return nil
 }
 
 // drainQueue polls repeatedly until the queue is empty or an error occurs.
@@ -133,15 +170,12 @@ func (a *App) drainQueue(ctx context.Context) {
 }
 
 func (a *App) poll(ctx context.Context) (int, error) {
-	res, err := a.reqClient.ReceiveMessage(ctx, message.ReceiveMessageParams{
-		QueueName: message.QueueName(a.config.Request.Queue),
-	})
+	qmsg, err := a.reqQueue.Receive(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to receive message: %w", err)
 	}
-	recvOK, ok := res.(*message.ReceiveMessageOK)
-	if !ok {
-		return 0, fmt.Errorf("unexpected response type: %T", res)
+	if qmsg == nil {
+		return 0, nil
 	}
 
 	// Use non-cancellable context for all message processing so that
@@ -149,45 +183,38 @@ func (a *App) poll(ctx context.Context) (int, error) {
 	// completes even during shutdown.
 	msgCtx := context.WithoutCancel(ctx)
 
-	for _, raw := range recvOK.Messages {
-		decoded, err := base64.StdEncoding.DecodeString(string(raw.Content))
-		if err != nil {
-			slog.Error("failed to decode message content, deleting invalid message",
-				"messageId", raw.ID,
-				"error", err,
-			)
-			a.deleteMessage(msgCtx, raw.ID)
-			continue
-		}
-
-		msg := mqbridge.UnmarshalMessage(decoded)
-		a.metrics.messagesReceived.Add(msgCtx, 1)
-
-		handler := a.findHandler(msg)
-		if handler == nil {
-			slog.Warn("no matching handler, dropping message",
-				"messageId", raw.ID,
-				"headers", msg.Headers,
-			)
-			a.metrics.messagesDropped.Add(msgCtx, 1)
-			a.deleteMessage(msgCtx, raw.ID)
-			continue
-		}
-
-		if handler.blocking {
-			a.handleBlocking(msgCtx, handler, msg, raw.ID)
-		} else {
-			// Acquire semaphore before spawning goroutine (blocks if at max_concurrency)
-			if err := handler.Acquire(ctx); err != nil {
-				return 0, err // context cancelled
-			}
-			a.wg.Go(func() {
-				defer handler.Release()
-				a.handleBlocking(msgCtx, handler, msg, raw.ID)
-			})
-		}
+	// Invalid message (decode failed): ack and skip
+	if qmsg.Message == nil {
+		a.ackMessage(msgCtx, qmsg)
+		return 1, nil
 	}
-	return len(recvOK.Messages), nil
+
+	a.metrics.messagesReceived.Add(msgCtx, 1)
+
+	handler := a.findHandler(qmsg.Message)
+	if handler == nil {
+		slog.Warn("no matching handler, dropping message",
+			"messageId", qmsg.ID,
+			"headers", qmsg.Message.Headers,
+		)
+		a.metrics.messagesDropped.Add(msgCtx, 1)
+		a.ackMessage(msgCtx, qmsg)
+		return 1, nil
+	}
+
+	if handler.blocking {
+		a.handleMessage(msgCtx, handler, qmsg)
+	} else {
+		// Acquire semaphore before spawning goroutine (blocks if at max_concurrency)
+		if err := handler.Acquire(ctx); err != nil {
+			return 0, err // context cancelled
+		}
+		a.wg.Go(func() {
+			defer handler.Release()
+			a.handleMessage(msgCtx, handler, qmsg)
+		})
+	}
+	return 1, nil
 }
 
 func (a *App) findHandler(msg *mqbridge.Message) *Handler {
@@ -199,22 +226,24 @@ func (a *App) findHandler(msg *mqbridge.Message) *Handler {
 	return nil
 }
 
-func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridge.Message, msgID message.MessageId) {
+func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMessage) {
+	msg := qmsg.Message
+
 	// Extract trace context from message headers (traceparent or rabbitmq.header.traceparent)
 	ctx = extractTraceContext(ctx, msg.Headers)
 
-	ctx, span := a.tracer.Start(ctx, "simplemq_subscriber.handle_message",
+	ctx, span := a.tracer.Start(ctx, "mqsubscriber.handle_message",
 		trace.WithAttributes(
 			attribute.String("handler", handler.name),
-			attribute.String("message_id", string(msgID)),
+			attribute.String("message_id", qmsg.ID),
 			attribute.Bool("blocking", handler.blocking),
 		),
 		trace.WithAttributes(headerAttributes("request.header.", msg.Headers)...),
 	)
 	defer span.End()
 
-	handler.logger.InfoContext(ctx, "handling message", "messageId", msgID)
-	handler.logHandlerMessage(ctx, msg, string(msgID))
+	handler.logger.InfoContext(ctx, "handling message", "messageId", qmsg.ID)
+	handler.logHandlerMessage(ctx, msg, qmsg.ID)
 
 	result := handler.Execute(ctx, msg)
 
@@ -222,46 +251,47 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	case result.Err != nil && handler.shouldIgnoreResponse(result):
 		// response_ignore matched: suppress response, delete message
 		handler.logger.InfoContext(ctx, "response ignored by exit code",
-			"messageId", msgID, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "exit_code", result.ExitCode)
 
 	case result.Err != nil && !handler.response:
-		// fire-and-forget failure: don't delete, will be redelivered
+		// fire-and-forget failure: nack for redelivery
 		span.RecordError(result.Err)
 		span.SetStatus(codes.Error, "command execution failed")
 		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
-			"messageId", msgID, "error", result.Err, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
+		a.nackMessage(ctx, qmsg)
 		return
 
 	case result.Err != nil && handler.response:
 		// response mode failure: send error response, then delete
 		handler.logger.InfoContext(ctx, "command execution failed, sending error response",
-			"messageId", msgID, "error", result.Err, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode)
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
-		a.publishResponse(ctx, span, handler, resp, msgID)
+		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
 
 	case handler.response:
 		// response mode success: send success response, then delete
 		handler.logger.InfoContext(ctx, "command execution succeeded, sending success response",
-			"messageId", msgID)
+			"messageId", qmsg.ID)
 		resp := handler.buildResponse(msg, result.Stdout, "success", 0)
-		a.publishResponse(ctx, span, handler, resp, msgID)
+		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
 
 	default:
 		// fire-and-forget success: just delete
-		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", msgID)
+		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", qmsg.ID)
 	}
 
-	a.deleteMessage(ctx, msgID)
+	a.ackMessage(ctx, qmsg)
 	a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-	handler.logger.InfoContext(ctx, "message processed", "messageId", msgID)
+	handler.logger.InfoContext(ctx, "message processed", "messageId", qmsg.ID)
 }
 
 // publishResponse injects trace context and publishes a response message with
-// retry. After exhausting all retries, it logs the error and returns nil so
-// the caller proceeds to delete the request message (preventing command
-// re-execution on redelivery).
-func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message, msgID message.MessageId) {
+// retry. After exhausting all retries, it logs the error so the caller
+// proceeds to ack the request message (preventing command re-execution on
+// redelivery).
+func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message, msgID string) {
 	injectTraceContext(ctx, resp.Headers)
 	var lastErr error
 	for attempt := range publishRetryCount {
@@ -277,7 +307,7 @@ func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Han
 		}
 		return
 	}
-	// All retries exhausted: record error but proceed to delete
+	// All retries exhausted: record error but proceed to ack
 	span.RecordError(lastErr)
 	span.SetStatus(codes.Error, "failed to publish result after retries")
 	handler.logger.ErrorContext(ctx, "failed to publish result after retries, deleting message",
@@ -286,7 +316,7 @@ func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Han
 }
 
 func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
-	ctx, span := a.tracer.Start(ctx, "simplemq_subscriber.publish",
+	ctx, span := a.tracer.Start(ctx, "mqsubscriber.publish",
 		trace.WithAttributes(
 			attribute.String("queue", a.config.Response.Queue),
 		),
@@ -294,33 +324,22 @@ func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
 	)
 	defer span.End()
 
-	data, err := mqbridge.MarshalMessage(msg)
-	if err != nil {
+	if err := a.resQueue.Publish(ctx, msg); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to marshal message")
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-	encoded := base64.StdEncoding.EncodeToString(data)
-	res, err := a.resClient.SendMessage(ctx,
-		&message.SendRequest{Content: message.MessageContent(encoded)},
-		message.SendMessageParams{QueueName: message.QueueName(a.config.Response.Queue)},
-	)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to send message")
-		return fmt.Errorf("failed to send message to response queue %q: %w", a.config.Response.Queue, err)
-	}
-	if _, ok := res.(*message.SendMessageOK); !ok {
-		return fmt.Errorf("unexpected response type from SimpleMQ: %T", res)
+		span.SetStatus(codes.Error, "failed to publish message")
+		return err
 	}
 	return nil
 }
 
-func (a *App) deleteMessage(ctx context.Context, msgID message.MessageId) {
-	if _, err := a.reqClient.DeleteMessage(ctx, message.DeleteMessageParams{
-		QueueName: message.QueueName(a.config.Request.Queue),
-		MessageId: msgID,
-	}); err != nil {
-		slog.Error("failed to delete message", "messageId", msgID, "error", err)
+func (a *App) ackMessage(ctx context.Context, qmsg *QueueMessage) {
+	if err := a.reqQueue.Ack(ctx, qmsg); err != nil {
+		slog.Error("failed to ack message", "messageId", qmsg.ID, "error", err)
+	}
+}
+
+func (a *App) nackMessage(ctx context.Context, qmsg *QueueMessage) {
+	if err := a.reqQueue.Nack(ctx, qmsg); err != nil {
+		slog.Error("failed to nack message", "messageId", qmsg.ID, "error", err)
 	}
 }
