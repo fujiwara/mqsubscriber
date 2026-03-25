@@ -89,6 +89,26 @@ func consumeFromRabbitMQ(t *testing.T, url, queue string, timeout time.Duration)
 	}
 }
 
+// newTestRMQConfig creates a RabbitMQ Config for testing.
+func newTestRMQConfig(url, reqQueue, resQueue string, reqExchange string, routingKeys []string, handlers []HandlerConfig) *Config {
+	cfg := &Config{
+		RabbitMQ:      &RabbitMQConfig{URL: url},
+		RequestQueue:  reqQueue,
+		ResponseQueue: resQueue,
+		RMQRequest: &RMQRequestConfig{
+			Queue:        reqQueue,
+			Exchange:     reqExchange,
+			ExchangeType: "direct",
+			RoutingKeys:  routingKeys,
+		},
+		RMQResponse: &RMQResponseConfig{
+			Queue: resQueue,
+		},
+		Handlers: handlers,
+	}
+	return cfg
+}
+
 func TestRabbitMQBlockingHandler(t *testing.T) {
 	url := requireRabbitMQ(t)
 	ctx := t.Context()
@@ -97,28 +117,16 @@ func TestRabbitMQBlockingHandler(t *testing.T) {
 	reqQueue := uniqueName("req-rmq")
 	resQueue := uniqueName("res-rmq")
 
-	cfg := &Config{
-		RabbitMQ: &RabbitMQConfig{URL: url},
-		Request: RequestConfig{
-			Queue:        reqQueue,
-			Exchange:     reqExchange,
-			ExchangeType: "direct",
-			RoutingKeys:  []string{"echo"},
+	cfg := newTestRMQConfig(url, reqQueue, resQueue, reqExchange, []string{"echo"}, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Timeout:  "5s",
+			Blocking: true,
+			Response: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "echo",
-				Match:    map[string]string{"rabbitmq.routing_key": "echo"},
-				Command:  []string{"cat"},
-				Timeout:  "5s",
-				Blocking: true,
-				Response: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -153,29 +161,17 @@ func TestRabbitMQNonBlockingHandler(t *testing.T) {
 	reqQueue := uniqueName("req-rmq-nb")
 	resQueue := uniqueName("res-rmq-nb")
 
-	cfg := &Config{
-		RabbitMQ: &RabbitMQConfig{URL: url},
-		Request: RequestConfig{
-			Queue:        reqQueue,
-			Exchange:     reqExchange,
-			ExchangeType: "direct",
-			RoutingKeys:  []string{"upper"},
+	cfg := newTestRMQConfig(url, reqQueue, resQueue, reqExchange, []string{"upper"}, []HandlerConfig{
+		{
+			Name:           "upper",
+			Match:          map[string]string{"rabbitmq.routing_key": "upper"},
+			Command:        []string{"tr", "a-z", "A-Z"},
+			Timeout:        "5s",
+			Blocking:       false,
+			MaxConcurrency: 3,
+			Response:       true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:           "upper",
-				Match:          map[string]string{"rabbitmq.routing_key": "upper"},
-				Command:        []string{"tr", "a-z", "A-Z"},
-				Timeout:        "5s",
-				Blocking:       false,
-				MaxConcurrency: 3,
-				Response:       true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -209,28 +205,16 @@ func TestRabbitMQCommandFailure(t *testing.T) {
 	reqQueue := uniqueName("req-rmq-fail")
 	resQueue := uniqueName("res-rmq-fail")
 
-	cfg := &Config{
-		RabbitMQ: &RabbitMQConfig{URL: url},
-		Request: RequestConfig{
-			Queue:        reqQueue,
-			Exchange:     reqExchange,
-			ExchangeType: "direct",
-			RoutingKeys:  []string{"fail"},
+	cfg := newTestRMQConfig(url, reqQueue, resQueue, reqExchange, []string{"fail"}, []HandlerConfig{
+		{
+			Name:     "fail",
+			Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+			Command:  []string{"false"},
+			Timeout:  "5s",
+			Blocking: true,
+			Response: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "fail",
-				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
-				Command:  []string{"false"},
-				Timeout:  "5s",
-				Blocking: true,
-				Response: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {

@@ -73,12 +73,12 @@ func newQueueClients(cfg *Config) (reqQueue QueueClient, resQueue QueueClient, e
 			resQueue = NewRabbitMQPublisher(cfg)
 		}
 	default:
-		reqQueue, err = NewSimpleMQReceiver(cfg.Request.APIURL, cfg.Request.APIKey, cfg.Request.Queue)
+		reqQueue, err = NewSimpleMQReceiver(cfg.SMQRequest.APIURL, cfg.SMQRequest.APIKey, cfg.SMQRequest.Queue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create request queue client: %w", err)
 		}
 		if cfg.hasResponseQueue() {
-			resQueue, err = NewSimpleMQPublisher(cfg.Response.APIURL, cfg.Response.APIKey, cfg.Response.Queue)
+			resQueue, err = NewSimpleMQPublisher(cfg.SMQResponse.APIURL, cfg.SMQResponse.APIKey, cfg.SMQResponse.Queue)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create response queue client: %w", err)
 			}
@@ -101,11 +101,11 @@ func totalMaxConcurrency(cfg *Config) int {
 func (a *App) Run(ctx context.Context) error {
 	logAttrs := []any{
 		"backend", a.config.BackendType(),
-		"request_queue", a.config.Request.Queue,
+		"request_queue", a.config.RequestQueue,
 		"handlers", len(a.handlers),
 	}
-	if a.config.Response.Queue != "" {
-		logAttrs = append(logAttrs, "response_queue", a.config.Response.Queue)
+	if a.config.ResponseQueue != "" {
+		logAttrs = append(logAttrs, "response_queue", a.config.ResponseQueue)
 	}
 	slog.Info("starting subscriber", logAttrs...)
 
@@ -119,7 +119,7 @@ func (a *App) Run(ctx context.Context) error {
 
 // runPollLoop runs the SimpleMQ polling loop with ticker-based drain.
 func (a *App) runPollLoop(ctx context.Context) error {
-	interval := a.config.Request.GetPollingInterval()
+	interval := a.config.SMQRequest.GetPollingInterval()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -318,7 +318,7 @@ func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Han
 func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
 	ctx, span := a.tracer.Start(ctx, "mqsubscriber.publish",
 		trace.WithAttributes(
-			attribute.String("queue", a.config.Response.Queue),
+			attribute.String("queue", a.config.ResponseQueue),
 		),
 		trace.WithAttributes(headerAttributes("response.header.", msg.Headers)...),
 	)

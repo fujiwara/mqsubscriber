@@ -86,6 +86,28 @@ func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
+// newTestSMQConfig creates a SimpleMQ Config for testing.
+func newTestSMQConfig(apiURL, reqQueue, resQueue string, handlers []HandlerConfig) *Config {
+	cfg := &Config{
+		SimpleMQ:      &SimpleMQConfig{APIURL: apiURL},
+		RequestQueue:  reqQueue,
+		ResponseQueue: resQueue,
+		SMQRequest: &SMQRequestConfig{
+			Queue:           reqQueue,
+			APIKey:          testAPIKey,
+			APIURL:          apiURL,
+			PollingInterval: "100ms",
+		},
+		SMQResponse: &SMQResponseConfig{
+			Queue:  resQueue,
+			APIKey: testAPIKey,
+			APIURL: apiURL,
+		},
+		Handlers: handlers,
+	}
+	return cfg
+}
+
 func TestBlockingHandler(t *testing.T) {
 	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
 	defer srv.Close()
@@ -93,26 +115,16 @@ func TestBlockingHandler(t *testing.T) {
 	reqQueue := uniqueName("req-blocking")
 	resQueue := uniqueName("res-blocking")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Timeout:  "5s",
+			Blocking: true,
+			Response: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "echo",
-				Match:    map[string]string{"rabbitmq.routing_key": "echo"},
-				Command:  []string{"cat"},
-				Timeout:  "5s",
-				Blocking: true,
-				Response: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -167,27 +179,17 @@ func TestNonBlockingHandler(t *testing.T) {
 	reqQueue := uniqueName("req-nonblocking")
 	resQueue := uniqueName("res-nonblocking")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:           "upper",
+			Match:          map[string]string{"rabbitmq.routing_key": "upper"},
+			Command:        []string{"tr", "a-z", "A-Z"},
+			Timeout:        "5s",
+			Blocking:       false,
+			MaxConcurrency: 3,
+			Response:       true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:           "upper",
-				Match:          map[string]string{"rabbitmq.routing_key": "upper"},
-				Command:        []string{"tr", "a-z", "A-Z"},
-				Timeout:        "5s",
-				Blocking:       false,
-				MaxConcurrency: 3,
-				Response:       true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -226,24 +228,14 @@ func TestNoMatchingHandler(t *testing.T) {
 	reqQueue := uniqueName("req-nomatch")
 	resQueue := uniqueName("res-nomatch")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Blocking: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "echo",
-				Match:    map[string]string{"rabbitmq.routing_key": "echo"},
-				Command:  []string{"cat"},
-				Blocking: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -293,33 +285,23 @@ func TestMultipleHandlers(t *testing.T) {
 	reqQueue := uniqueName("req-multi")
 	resQueue := uniqueName("res-multi")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Blocking: true,
+			Response: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
+		{
+			Name:           "upper",
+			Match:          map[string]string{"rabbitmq.routing_key": "upper"},
+			Command:        []string{"tr", "a-z", "A-Z"},
+			Blocking:       false,
+			MaxConcurrency: 2,
+			Response:       true,
 		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "echo",
-				Match:    map[string]string{"rabbitmq.routing_key": "echo"},
-				Command:  []string{"cat"},
-				Blocking: true,
-				Response: true,
-			},
-			{
-				Name:           "upper",
-				Match:          map[string]string{"rabbitmq.routing_key": "upper"},
-				Command:        []string{"tr", "a-z", "A-Z"},
-				Blocking:       false,
-				MaxConcurrency: 2,
-				Response:       true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -376,25 +358,15 @@ func TestCommandFailureResponseTrue(t *testing.T) {
 	reqQueue := uniqueName("req-fail-res")
 	resQueue := uniqueName("res-fail-res")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "fail",
+			Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+			Command:  []string{"false"},
+			Blocking: true,
+			Response: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "fail",
-				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
-				Command:  []string{"false"},
-				Blocking: true,
-				Response: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -436,24 +408,14 @@ func TestCommandFailureResponseFalse(t *testing.T) {
 	reqQueue := uniqueName("req-fail-nores")
 	resQueue := uniqueName("res-fail-nores")
 
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "fail",
+			Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+			Command:  []string{"false"},
+			Blocking: true,
 		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "fail",
-				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
-				Command:  []string{"false"},
-				Blocking: true,
-			},
-		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -491,28 +453,18 @@ func TestResponseIgnoreExitCode(t *testing.T) {
 	resQueue := uniqueName("res-ignore")
 
 	ignoreExitCode := 99
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
-		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "ignore-test",
-				Match:    map[string]string{"rabbitmq.routing_key": "ignore"},
-				Command:  []string{"sh", "-c", "exit 99"},
-				Blocking: true,
-				Response: true,
-				ResponseIgnore: &ResponseIgnoreConfig{
-					ExitCode: &ignoreExitCode,
-				},
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "ignore-test",
+			Match:    map[string]string{"rabbitmq.routing_key": "ignore"},
+			Command:  []string{"sh", "-c", "exit 99"},
+			Blocking: true,
+			Response: true,
+			ResponseIgnore: &ResponseIgnoreConfig{
+				ExitCode: &ignoreExitCode,
 			},
 		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {
@@ -562,28 +514,18 @@ func TestResponseIgnoreExitCodeNonMatch(t *testing.T) {
 	resQueue := uniqueName("res-ignore-nomatch")
 
 	ignoreExitCode := 99
-	cfg := &Config{
-		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
-		Request: RequestConfig{
-			Queue: reqQueue, APIKey: testAPIKey,
-			PollingInterval: "100ms",
-		},
-		Response: ResponseConfig{
-			Queue: resQueue, APIKey: testAPIKey,
-		},
-		Handlers: []HandlerConfig{
-			{
-				Name:     "ignore-nomatch",
-				Match:    map[string]string{"rabbitmq.routing_key": "fail"},
-				Command:  []string{"sh", "-c", "exit 98"}, // exits with 98, not 99
-				Blocking: true,
-				Response: true,
-				ResponseIgnore: &ResponseIgnoreConfig{
-					ExitCode: &ignoreExitCode,
-				},
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "ignore-nomatch",
+			Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+			Command:  []string{"sh", "-c", "exit 98"}, // exits with 98, not 99
+			Blocking: true,
+			Response: true,
+			ResponseIgnore: &ResponseIgnoreConfig{
+				ExitCode: &ignoreExitCode,
 			},
 		},
-	}
+	})
 
 	app, err := New(cfg)
 	if err != nil {

@@ -54,7 +54,7 @@ func (r *RabbitMQReceiver) connect() error {
 		}
 	}
 
-	req := r.config.Request
+	req := r.config.RMQRequest
 	exchangeType := req.ExchangeType
 	if exchangeType == "" {
 		exchangeType = "direct"
@@ -131,7 +131,7 @@ func (r *RabbitMQReceiver) ensureConnected(ctx context.Context) error {
 			backoff = min(backoff*2, rabbitMQMaxBackoff)
 			continue
 		}
-		slog.Info("RabbitMQ receiver connected", "queue", r.config.Request.Queue)
+		slog.Info("RabbitMQ receiver connected", "queue", r.config.RequestQueue)
 		return nil
 	}
 }
@@ -152,7 +152,7 @@ func (r *RabbitMQReceiver) Receive(ctx context.Context) (*QueueMessage, error) {
 			r.mu.Lock()
 			r.closeConn()
 			r.mu.Unlock()
-			return nil, fmt.Errorf("RabbitMQ channel closed for queue %q", r.config.Request.Queue)
+			return nil, fmt.Errorf("RabbitMQ channel closed for queue %q", r.config.RequestQueue)
 		}
 		msg := messageFromDelivery(delivery)
 		return &QueueMessage{
@@ -236,7 +236,7 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
 	// Declare response queue if configured
-	if q := p.config.Response.Queue; q != "" {
+	if q := p.config.RMQResponse.Queue; q != "" {
 		if _, err := ch.QueueDeclare(q, true, false, false, false, nil); err != nil {
 			ch.Close()
 			conn.Close()
@@ -245,7 +245,7 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 	}
 	p.conn = conn
 	p.ch = ch
-	slog.Info("RabbitMQ publisher connected", "response_queue", p.config.Response.Queue)
+	slog.Info("RabbitMQ publisher connected", "response_queue", p.config.RMQResponse.Queue)
 	return nil
 }
 
@@ -262,8 +262,8 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		return err
 	}
 
-	exchange := p.config.Response.Exchange
-	routingKey := p.config.Response.RoutingKey
+	exchange := p.config.RMQResponse.Exchange
+	routingKey := p.config.RMQResponse.RoutingKey
 
 	// Message headers override config if present
 	if v, ok := msg.Headers[mqbridge.HeaderRabbitMQExchange]; ok {
@@ -274,8 +274,8 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 	}
 
 	// Fall back to default exchange + queue name as routing key
-	if routingKey == "" && p.config.Response.Queue != "" {
-		routingKey = p.config.Response.Queue
+	if routingKey == "" && p.config.RMQResponse.Queue != "" {
+		routingKey = p.config.RMQResponse.Queue
 	}
 
 	if routingKey == "" {
