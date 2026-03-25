@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.2](https://github.com/fujiwara/mqsubscriber/commits/v0.2.2) - 2026-03-25
+- Add RabbitMQ support and rename to mqsubscriber by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/2
+- Bump github.com/fujiwara/mqbridge from 0.1.0 to 0.3.1 by @dependabot[bot] in https://github.com/fujiwara/mqsubscriber/pull/4
+- Bump github.com/fujiwara/simplemq-cli from 0.7.1 to 0.8.0 by @dependabot[bot] in https://github.com/fujiwara/mqsubscriber/pull/3
+
 ## [v0.2.2](https://github.com/fujiwara/simplemq-subscriber/compare/v0.2.1...v0.2.2) - 2026-03-24
 - Drain queue continuously instead of one poll per tick by @fujiwara in https://github.com/fujiwara/simplemq-subscriber/pull/20
 
