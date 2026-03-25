@@ -59,7 +59,7 @@ func (r *RabbitMQReceiver) connect() error {
 	if exchangeType == "" {
 		exchangeType = "direct"
 	}
-	routingKeys := req.RoutingKeys
+	routingKeys := req.RoutingKey
 	if len(routingKeys) == 0 {
 		routingKeys = []string{"#"}
 	}

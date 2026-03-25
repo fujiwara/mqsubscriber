@@ -184,7 +184,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
     queue: "request-queue",
     exchange: "my-exchange",       // optional
     exchange_type: "direct",       // optional, default: "direct"
-    routing_keys: ["deploy", "notify"],  // optional, default: ["#"]
+    routing_key: ["deploy", "notify"],  // optional, default: ["#"]
     exchange_passive: false,       // optional, default: false
   },
   // response is optional — required only when any handler has response: true

@@ -274,6 +274,63 @@ func TestGetTimeout(t *testing.T) {
 	}
 }
 
+func TestRoutingKeyUnmarshal(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "string value",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q", "routing_key": "#"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			want: []string{"#"},
+		},
+		{
+			name: "array value",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q", "routing_key": ["foo.*", "bar.#"]},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			want: []string{"foo.*", "bar.#"},
+		},
+		{
+			name: "omitted defaults to nil",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := parseConfig([]byte(tt.json))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseConfig error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			got := cfg.RMQRequest.RoutingKey
+			if len(got) != len(tt.want) {
+				t.Fatalf("routing_key: expected %v, got %v", tt.want, got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("routing_key[%d]: expected %q, got %q", i, tt.want[i], got[i])
+				}
+			}
+		})
+	}
+}
+
 func TestGetMaxConcurrency(t *testing.T) {
 	h := &HandlerConfig{}
 	if c := h.GetMaxConcurrency(); c != 1 {
