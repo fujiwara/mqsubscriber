@@ -1,5 +1,7 @@
 # Changelog
 
+## [v0.2.3](https://github.com/fujiwara/mqsubscriber/compare/v0.2.2...v0.2.3) - 2026-03-25
+
 ## [v0.2.2](https://github.com/fujiwara/mqsubscriber/commits/v0.2.2) - 2026-03-25
 - Add RabbitMQ support and rename to mqsubscriber by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/2
 - Bump github.com/fujiwara/mqbridge from 0.1.0 to 0.3.1 by @dependabot[bot] in https://github.com/fujiwara/mqsubscriber/pull/4
