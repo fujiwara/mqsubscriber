@@ -64,13 +64,31 @@ type SMQResponseConfig struct {
 	APIURL string `json:"api_url"`
 }
 
+// RoutingKeys is a []string that accepts both a single string and an array of strings in JSON.
+type RoutingKeys []string
+
+// UnmarshalJSON implements custom unmarshalling to accept both a string and an array of strings.
+func (r *RoutingKeys) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*r = RoutingKeys{s}
+		return nil
+	}
+	var a []string
+	if err := json.Unmarshal(data, &a); err != nil {
+		return fmt.Errorf("routing_key must be a string or an array of strings")
+	}
+	*r = RoutingKeys(a)
+	return nil
+}
+
 // RMQRequestConfig defines the RabbitMQ request (inbound) queue.
 type RMQRequestConfig struct {
-	Queue           string   `json:"queue"`
-	Exchange        string   `json:"exchange"`
-	ExchangeType    string   `json:"exchange_type"`
-	RoutingKeys     []string `json:"routing_key"`
-	ExchangePassive bool     `json:"exchange_passive"`
+	Queue           string      `json:"queue"`
+	Exchange        string      `json:"exchange"`
+	ExchangeType    string      `json:"exchange_type"`
+	RoutingKey      RoutingKeys `json:"routing_key"`
+	ExchangePassive bool        `json:"exchange_passive"`
 }
 
 // RMQResponseConfig defines the RabbitMQ response (outbound) queue.

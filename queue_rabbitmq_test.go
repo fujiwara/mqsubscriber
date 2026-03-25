@@ -99,7 +99,7 @@ func newTestRMQConfig(url, reqQueue, resQueue string, reqExchange string, routin
 			Queue:        reqQueue,
 			Exchange:     reqExchange,
 			ExchangeType: "direct",
-			RoutingKeys:  routingKeys,
+			RoutingKey:   RoutingKeys(routingKeys),
 		},
 		RMQResponse: &RMQResponseConfig{
 			Queue: resQueue,
