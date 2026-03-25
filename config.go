@@ -29,8 +29,8 @@ const (
 
 // Config is the top-level configuration.
 type Config struct {
-	SimpleMQ SimpleMQConfig  `json:"simplemq"`
-	RabbitMQ RabbitMQConfig  `json:"rabbitmq"`
+	SimpleMQ *SimpleMQConfig `json:"simplemq"`
+	RabbitMQ *RabbitMQConfig `json:"rabbitmq"`
 	Request  RequestConfig   `json:"request"`
 	Response ResponseConfig  `json:"response"`
 	Handlers []HandlerConfig `json:"handlers"`
@@ -159,7 +159,7 @@ func parseConfig(data []byte) (*Config, error) {
 
 // BackendType returns the MQ backend type based on configuration.
 func (c *Config) BackendType() string {
-	if c.RabbitMQ.URL != "" {
+	if c.RabbitMQ != nil {
 		return BackendRabbitMQ
 	}
 	return BackendSimpleMQ
@@ -190,7 +190,7 @@ func (c *Config) Validate() error {
 	c.applyDefaults()
 
 	// Backend exclusivity check
-	if c.SimpleMQ.APIURL != "" && c.RabbitMQ.URL != "" {
+	if c.SimpleMQ != nil && c.RabbitMQ != nil {
 		return fmt.Errorf("simplemq and rabbitmq cannot be configured simultaneously")
 	}
 
@@ -244,7 +244,7 @@ func (c *Config) validateSimpleMQ() error {
 }
 
 func (c *Config) validateRabbitMQ() error {
-	if c.RabbitMQ.URL == "" {
+	if c.RabbitMQ == nil || c.RabbitMQ.URL == "" {
 		return fmt.Errorf("rabbitmq.url is required")
 	}
 	return nil
@@ -279,10 +279,12 @@ func (h *HandlerConfig) validate(index int) error {
 
 // applyDefaults copies global config into per-queue configs where not already set.
 func (c *Config) applyDefaults() {
-	if c.Request.APIURL == "" {
-		c.Request.SimpleMQConfig = c.SimpleMQ
-	}
-	if c.Response.APIURL == "" {
-		c.Response.SimpleMQConfig = c.SimpleMQ
+	if c.SimpleMQ != nil {
+		if c.Request.APIURL == "" {
+			c.Request.SimpleMQConfig = *c.SimpleMQ
+		}
+		if c.Response.APIURL == "" {
+			c.Response.SimpleMQConfig = *c.SimpleMQ
+		}
 	}
 }

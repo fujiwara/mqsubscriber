@@ -94,7 +94,7 @@ func TestRabbitMQBlockingHandler(t *testing.T) {
 	resQueue := uniqueName("res-rmq")
 
 	cfg := &Config{
-		RabbitMQ: RabbitMQConfig{URL: url},
+		RabbitMQ: &RabbitMQConfig{URL: url},
 		Request: RequestConfig{
 			Queue:        reqQueue,
 			Exchange:     reqExchange,
@@ -150,7 +150,7 @@ func TestRabbitMQNonBlockingHandler(t *testing.T) {
 	resQueue := uniqueName("res-rmq-nb")
 
 	cfg := &Config{
-		RabbitMQ: RabbitMQConfig{URL: url},
+		RabbitMQ: &RabbitMQConfig{URL: url},
 		Request: RequestConfig{
 			Queue:        reqQueue,
 			Exchange:     reqExchange,
@@ -206,7 +206,7 @@ func TestRabbitMQCommandFailure(t *testing.T) {
 	resQueue := uniqueName("res-rmq-fail")
 
 	cfg := &Config{
-		RabbitMQ: RabbitMQConfig{URL: url},
+		RabbitMQ: &RabbitMQConfig{URL: url},
 		Request: RequestConfig{
 			Queue:        reqQueue,
 			Exchange:     reqExchange,

@@ -94,7 +94,7 @@ func TestBlockingHandler(t *testing.T) {
 	resQueue := uniqueName("res-blocking")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -168,7 +168,7 @@ func TestNonBlockingHandler(t *testing.T) {
 	resQueue := uniqueName("res-nonblocking")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -227,7 +227,7 @@ func TestNoMatchingHandler(t *testing.T) {
 	resQueue := uniqueName("res-nomatch")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -294,7 +294,7 @@ func TestMultipleHandlers(t *testing.T) {
 	resQueue := uniqueName("res-multi")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -377,7 +377,7 @@ func TestCommandFailureResponseTrue(t *testing.T) {
 	resQueue := uniqueName("res-fail-res")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -437,7 +437,7 @@ func TestCommandFailureResponseFalse(t *testing.T) {
 	resQueue := uniqueName("res-fail-nores")
 
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -492,7 +492,7 @@ func TestResponseIgnoreExitCode(t *testing.T) {
 
 	ignoreExitCode := 99
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",
@@ -563,7 +563,7 @@ func TestResponseIgnoreExitCodeNonMatch(t *testing.T) {
 
 	ignoreExitCode := 99
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: srv.TestURL()},
+		SimpleMQ: &SimpleMQConfig{APIURL: srv.TestURL()},
 		Request: RequestConfig{
 			Queue: reqQueue, APIKey: testAPIKey,
 			PollingInterval: "100ms",

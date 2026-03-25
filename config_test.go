@@ -140,6 +140,40 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "simplemq and rabbitmq both configured",
+			config: Config{
+				SimpleMQ: &SimpleMQConfig{},
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "simplemq empty object with rabbitmq",
+			config: Config{
+				SimpleMQ: &SimpleMQConfig{APIURL: ""},
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid rabbitmq config",
+			config: Config{
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
+				},
+			},
+		},
+		{
 			name: "valid response_ignore",
 			config: Config{
 				Request:  RequestConfig{Queue: "q", APIKey: "k"},
@@ -162,7 +196,7 @@ func TestValidateConfig(t *testing.T) {
 
 func TestApplyDefaults(t *testing.T) {
 	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: "https://example.com"},
+		SimpleMQ: &SimpleMQConfig{APIURL: "https://example.com"},
 		Request:  RequestConfig{Queue: "q", APIKey: "k"},
 		Response: ResponseConfig{Queue: "q", APIKey: "k"},
 	}
