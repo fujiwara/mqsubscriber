@@ -278,6 +278,10 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		routingKey = p.config.Response.Queue
 	}
 
+	if routingKey == "" {
+		return fmt.Errorf("cannot determine response destination: no routing_key in message headers and no response.queue configured")
+	}
+
 	// Build AMQP headers from rabbitmq.header.* prefix
 	headers := make(amqp.Table)
 	for k, v := range msg.Headers {

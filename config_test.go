@@ -164,6 +164,40 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "rabbitmq reply_to with response queue",
+			config: Config{
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Response: ResponseConfig{Queue: "q", ReplyTo: true},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid rabbitmq reply_to",
+			config: Config{
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Response: ResponseConfig{ReplyTo: true},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
+				},
+			},
+		},
+		{
+			name: "rabbitmq response without queue or reply_to",
+			config: Config{
+				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},
+				Request:  RequestConfig{Queue: "q"},
+				Handlers: []HandlerConfig{
+					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "valid rabbitmq config",
 			config: Config{
 				RabbitMQ: &RabbitMQConfig{URL: "amqp://localhost"},

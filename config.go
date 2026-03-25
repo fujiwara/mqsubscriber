@@ -76,7 +76,8 @@ func (c *RequestConfig) GetPollingInterval() time.Duration {
 type ResponseConfig struct {
 	SimpleMQConfig        // embedded: api_url (overrides global SimpleMQ)
 	Queue          string `json:"queue"`
-	APIKey         string `json:"api_key"` // SimpleMQ only
+	APIKey         string `json:"api_key"`  // SimpleMQ only
+	ReplyTo        bool   `json:"reply_to"` // RabbitMQ only: use message's reply_to header as destination
 
 	// RabbitMQ only: fixed destination (optional; if empty, uses message headers)
 	Exchange   string `json:"exchange"`
@@ -175,11 +176,11 @@ func (c *Config) needsResponseQueue() bool {
 	return false
 }
 
-// hasResponseQueue returns true if the response queue is configured.
+// hasResponseQueue returns true if the response destination is configured.
 func (c *Config) hasResponseQueue() bool {
 	switch c.BackendType() {
 	case BackendRabbitMQ:
-		return c.Response.Queue != ""
+		return c.Response.Queue != "" || c.Response.ReplyTo
 	default:
 		return c.Response.Queue != "" && c.Response.APIKey != ""
 	}
@@ -221,10 +222,15 @@ func (c *Config) Validate() error {
 	needsResponse := c.needsResponseQueue()
 	hasResponse := c.hasResponseQueue()
 
+	// Validate response.reply_to + response.queue exclusivity
+	if c.Response.ReplyTo && c.Response.Queue != "" {
+		return fmt.Errorf("response.reply_to and response.queue cannot both be set")
+	}
+
 	if needsResponse && !hasResponse {
 		switch c.BackendType() {
 		case BackendRabbitMQ:
-			return fmt.Errorf("response.queue is required when any handler has response enabled")
+			return fmt.Errorf("response.queue or response.reply_to is required when any handler has response enabled")
 		default:
 			return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
 		}
