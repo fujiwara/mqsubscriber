@@ -69,7 +69,7 @@ type RMQRequestConfig struct {
 	Queue           string   `json:"queue"`
 	Exchange        string   `json:"exchange"`
 	ExchangeType    string   `json:"exchange_type"`
-	RoutingKeys     []string `json:"routing_keys"`
+	RoutingKeys     []string `json:"routing_key"`
 	ExchangePassive bool     `json:"exchange_passive"`
 }
 
