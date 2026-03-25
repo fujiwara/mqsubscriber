@@ -17,6 +17,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	// publishRetryCount is the number of retry attempts for response publishing.
+	publishRetryCount = 3
+	// publishRetryBaseInterval is the base interval for exponential backoff.
+	publishRetryBaseInterval = time.Second
+)
+
 // apiKeySource implements message.SecuritySource.
 type apiKeySource struct {
 	apiKey string
@@ -231,18 +238,14 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 		handler.logger.InfoContext(ctx, "command execution failed, sending error response",
 			"messageId", msgID, "error", result.Err, "exit_code", result.ExitCode)
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
-		if err := a.publishResponse(ctx, span, handler, resp, msgID); err != nil {
-			return
-		}
+		a.publishResponse(ctx, span, handler, resp, msgID)
 
 	case handler.response:
 		// response mode success: send success response, then delete
 		handler.logger.InfoContext(ctx, "command execution succeeded, sending success response",
 			"messageId", msgID)
 		resp := handler.buildResponse(msg, result.Stdout, "success", 0)
-		if err := a.publishResponse(ctx, span, handler, resp, msgID); err != nil {
-			return
-		}
+		a.publishResponse(ctx, span, handler, resp, msgID)
 
 	default:
 		// fire-and-forget success: just delete
@@ -254,20 +257,32 @@ func (a *App) handleBlocking(ctx context.Context, handler *Handler, msg *mqbridg
 	handler.logger.InfoContext(ctx, "message processed", "messageId", msgID)
 }
 
-// publishResponse injects trace context, publishes a response message, and
-// records errors on the span. Returns non-nil error if publish failed
-// (caller should skip delete so the message is redelivered).
-func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message, msgID message.MessageId) error {
+// publishResponse injects trace context and publishes a response message with
+// retry. After exhausting all retries, it logs the error and returns nil so
+// the caller proceeds to delete the request message (preventing command
+// re-execution on redelivery).
+func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message, msgID message.MessageId) {
 	injectTraceContext(ctx, resp.Headers)
-	if err := a.publishResult(ctx, resp); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to publish result")
-		handler.logger.ErrorContext(ctx, "failed to publish result",
-			"messageId", msgID, "error", err)
-		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-		return err
+	var lastErr error
+	for attempt := range publishRetryCount {
+		if attempt > 0 {
+			backoff := publishRetryBaseInterval * (1 << (attempt - 1)) // 1s, 2s, 4s
+			handler.logger.InfoContext(ctx, "retrying response publish",
+				"messageId", msgID, "attempt", attempt+1, "backoff", backoff)
+			time.Sleep(backoff)
+		}
+		if err := a.publishResult(ctx, resp); err != nil {
+			lastErr = err
+			continue
+		}
+		return
 	}
-	return nil
+	// All retries exhausted: record error but proceed to delete
+	span.RecordError(lastErr)
+	span.SetStatus(codes.Error, "failed to publish result after retries")
+	handler.logger.ErrorContext(ctx, "failed to publish result after retries, deleting message",
+		"messageId", msgID, "error", lastErr, "retries", publishRetryCount)
+	a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 }
 
 func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
