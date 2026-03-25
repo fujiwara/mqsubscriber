@@ -15,4 +15,4 @@
 # vendor/
 
 .envrc
-/simplemq-subscriber
+/mqsubscriber
