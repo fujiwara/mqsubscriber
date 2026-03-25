@@ -104,8 +104,8 @@ Messages are native AMQP deliveries. AMQP metadata (exchange, routing key, reply
 1. **Receive**: The backend delivers a message → mqsubscriber parses it into headers + body
 2. **Dispatch**: The `headers` are used for handler matching (e.g., match on `rabbitmq.routing_key`)
 3. **Execute**: `body` is passed to the command's stdin. `headers` are available as `MQ_HEADER_*` environment variables
-4. **Respond**: Command stdout becomes the new `body`. If `rabbitmq.reply_to` is present, the response is routed to the reply queue via the default exchange (RPC pattern)
-5. **Publish**: The response is sent to the response queue via the same backend
+4. **Respond**: Command stdout becomes the new `body`. If `rabbitmq.reply_to` is present, the response is routed to the reply queue via the default exchange (RPC pattern). Otherwise, the response is sent to the configured response queue
+5. **Publish**: The response is published via the same backend
 
 ## Installation
 
@@ -187,11 +187,12 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
     routing_keys: ["deploy", "notify"],  // optional, default: ["#"]
     exchange_passive: false,       // optional, default: false
   },
-  // response queue is optional — required only when any handler has response: true
+  // response is optional — required only when any handler has response: true
   response: {
     queue: "response-queue",
     exchange: "",          // optional, default: "" (default exchange)
     routing_key: "",       // optional, default: response queue name
+    reply_to: false,       // optional, default: false (see below)
   },
   handlers: [
     // ... (see Handler Configuration below)
@@ -213,7 +214,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
       command: ["/usr/local/bin/deploy.sh"],
       timeout: "60s",     // optional, default: 30s
       blocking: true,     // wait for completion before processing next message
-      response: true,     // send response back (requires response queue)
+      response: true,     // send response back (requires response queue or reply_to)
       response_ignore: {  // optional: suppress response for specific exit code
         exit_code: 99,    // if command exits with 99, no response is sent
       },
@@ -309,6 +310,23 @@ When the command exits with the specified `exit_code`:
 
 For any other exit code, the normal behavior applies (success response for exit 0, error response for other non-zero codes).
 
+### Response `reply_to` Mode (RabbitMQ)
+
+When using the RabbitMQ backend with the RPC pattern, you can set `response.reply_to: true` instead of specifying a `response.queue`. In this mode, responses are routed exclusively via the `rabbitmq.reply_to` header from each incoming message — no static response queue is needed.
+
+```jsonnet
+{
+  rabbitmq: { url: must_env("AMQP_URL") },
+  request: { queue: "request-queue" },
+  response: { reply_to: true },
+  handlers: [
+    { name: "rpc", match: { /* ... */ }, command: ["./handler.sh"], response: true },
+  ],
+}
+```
+
+`response.reply_to` and `response.queue` cannot both be set — they are mutually exclusive.
+
 ### RPC Response Routing
 
 When a message contains a `rabbitmq.reply_to` header (set by RabbitMQ RPC clients), the response is automatically routed to the reply queue:
@@ -320,7 +338,7 @@ When a message contains a `rabbitmq.reply_to` header (set by RabbitMQ RPC client
 
 This enables the standard RabbitMQ RPC pattern: the response is delivered directly to the caller's exclusive reply queue via the default exchange.
 
-If `rabbitmq.reply_to` is **not present**, the request routing headers are removed from the response. The publisher uses the configured response queue instead.
+If `rabbitmq.reply_to` is **not present**, the request routing headers (`rabbitmq.exchange`, `rabbitmq.routing_key`) are removed from the response so that the publisher uses the configured response queue instead.
 
 ### Jsonnet Built-in Functions
 
