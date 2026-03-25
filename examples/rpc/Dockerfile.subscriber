@@ -1,6 +1,6 @@
 FROM golang:1.26.1 AS build
-RUN CGO_ENABLED=0 go install github.com/fujiwara/simplemq-subscriber/cmd/simplemq-subscriber@latest
+RUN CGO_ENABLED=0 go install github.com/fujiwara/mqsubscriber/cmd/mqsubscriber@latest
 
 FROM debian:bookworm-slim
-COPY --from=build /go/bin/simplemq-subscriber /usr/local/bin/
-CMD ["simplemq-subscriber"]
+COPY --from=build /go/bin/mqsubscriber /usr/local/bin/
+CMD ["mqsubscriber"]

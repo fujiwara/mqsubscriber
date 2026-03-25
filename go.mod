@@ -1,4 +1,4 @@
-module github.com/fujiwara/simplemq-subscriber
+module github.com/fujiwara/mqsubscriber
 
 go 1.25.5
 
@@ -9,6 +9,7 @@ require (
 	github.com/fujiwara/sakura-secrets-cli v0.3.0
 	github.com/fujiwara/simplemq-cli v0.7.1
 	github.com/fujiwara/sloghandler v0.1.0
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/sacloud/simplemq-api-go v0.5.0
 	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.42.0
@@ -51,7 +52,6 @@ require (
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/ogen-go/ogen v1.18.0 // indirect
-	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sacloud/api-client-go v0.3.5 // indirect
 	github.com/sacloud/go-http v0.1.9 // indirect

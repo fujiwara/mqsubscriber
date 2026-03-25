@@ -14,9 +14,9 @@ import (
 
 // CLI defines the command-line interface.
 type CLI struct {
-	Config    string           `kong:"required,short='c',env='SIMPLEMQ_SUBSCRIBER_CONFIG',help='Config file path (Jsonnet/JSON)'" `
-	LogFormat string           `kong:"default='text',enum='text,json',env='SIMPLEMQ_SUBSCRIBER_LOG_FORMAT',help='Log format (text or json)'" `
-	LogLevel  string           `kong:"default='info',enum='debug,info,warn,error',env='SIMPLEMQ_SUBSCRIBER_LOG_LEVEL',help='Log level (debug, info, warn, error)'" `
+	Config    string           `kong:"required,short='c',env='MQSUBSCRIBER_CONFIG',help='Config file path (Jsonnet/JSON)'" `
+	LogFormat string           `kong:"default='text',enum='text,json',env='MQSUBSCRIBER_LOG_FORMAT',help='Log format (text or json)'" `
+	LogLevel  string           `kong:"default='info',enum='debug,info,warn,error',env='MQSUBSCRIBER_LOG_LEVEL',help='Log level (debug, info, warn, error)'" `
 	Run       RunCmd           `cmd:"" default:"1" help:"Run the subscriber"`
 	Validate  ValidateCmd      `cmd:"" help:"Validate config"`
 	Render    RenderCmd        `cmd:"" help:"Render config as JSON to stdout"`
@@ -27,8 +27,8 @@ type CLI struct {
 func RunCLI(ctx context.Context) error {
 	cli := &CLI{}
 	kctx := kong.Parse(cli,
-		kong.Name("simplemq-subscriber"),
-		kong.Description("SimpleMQ subscriber daemon that processes messages via external commands"),
+		kong.Name("mqsubscriber"),
+		kong.Description("MQ subscriber daemon that processes messages via external commands"),
 		kong.Vars{"version": Version},
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)

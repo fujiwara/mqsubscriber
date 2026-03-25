@@ -5,19 +5,17 @@ import (
 	"testing"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func TestLoadConfig(t *testing.T) {
 	ctx := context.Background()
 	cfg, err := LoadConfig(ctx, "testdata/config.jsonnet")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
-	if cfg.Request.Queue != "request-queue" {
-		t.Errorf("request.queue: expected %q, got %q", "request-queue", cfg.Request.Queue)
+	if cfg.RequestQueue != "request-queue" {
+		t.Errorf("request.queue: expected %q, got %q", "request-queue", cfg.RequestQueue)
 	}
-	if cfg.Response.Queue != "response-queue" {
-		t.Errorf("response.queue: expected %q, got %q", "response-queue", cfg.Response.Queue)
+	if cfg.ResponseQueue != "response-queue" {
+		t.Errorf("response.queue: expected %q, got %q", "response-queue", cfg.ResponseQueue)
 	}
 	if len(cfg.Handlers) != 2 {
 		t.Fatalf("handlers: expected 2, got %d", len(cfg.Handlers))
@@ -36,123 +34,203 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func mustParseConfig(t *testing.T, jsonStr string) *Config {
+	t.Helper()
+	cfg, err := parseConfig([]byte(jsonStr))
+	if err != nil {
+		t.Fatalf("parseConfig failed: %v", err)
+	}
+	return cfg
+}
+
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  Config
+		json    string
 		wantErr bool
 	}{
 		{
-			name: "valid without response queue",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
-				},
-			},
+			name: "valid simplemq without response queue",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
 		},
 		{
-			name: "valid with response queue and response handler",
-			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
-				},
-			},
+			name: "valid simplemq with response queue",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"response": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true}]
+			}`,
 		},
 		{
 			name: "missing request queue",
-			config: Config{
-				Request: RequestConfig{APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
-				},
-			},
+			json: `{
+				"request": {"api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "missing api_key for simplemq",
+			json: `{
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "response handler without response queue",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "no handlers",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"}
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "handler missing name",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Match: map[string]string{"k": "v"}, Command: []string{"echo"}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"match": {"k": "v"}, "command": ["echo"]}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "handler missing match",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Command: []string{"echo"}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "command": ["echo"]}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "handler missing command",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "response_ignore without response",
-			config: Config{
-				Request: RequestConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, ResponseIgnore: &ResponseIgnoreConfig{ExitCode: ptr(99)}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response_ignore": {"exit_code": 99}}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "response_ignore without exit_code",
-			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true, ResponseIgnore: &ResponseIgnoreConfig{}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"response": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true, "response_ignore": {}}]
+			}`,
 			wantErr: true,
 		},
 		{
 			name: "valid response_ignore",
-			config: Config{
-				Request:  RequestConfig{Queue: "q", APIKey: "k"},
-				Response: ResponseConfig{Queue: "q", APIKey: "k"},
-				Handlers: []HandlerConfig{
-					{Name: "h", Match: map[string]string{"k": "v"}, Command: []string{"echo"}, Response: true, ResponseIgnore: &ResponseIgnoreConfig{ExitCode: ptr(99)}},
-				},
-			},
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"response": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true, "response_ignore": {"exit_code": 99}}]
+			}`,
+		},
+		// Backend exclusivity
+		{
+			name: "simplemq and rabbitmq both configured",
+			json: `{
+				"simplemq": {},
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "simplemq empty object with rabbitmq",
+			json: `{
+				"simplemq": {"api_url": ""},
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			wantErr: true,
+		},
+		// RabbitMQ
+		{
+			name: "valid rabbitmq config",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+		},
+		{
+			name: "valid rabbitmq reply_to",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"response": {"reply_to": true},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true}]
+			}`,
+		},
+		{
+			name: "rabbitmq reply_to with response queue",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"response": {"queue": "q", "reply_to": true},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "rabbitmq response without queue or reply_to",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true}]
+			}`,
+			wantErr: true,
+		},
+		// Unknown fields rejected per backend
+		{
+			name: "simplemq request with rabbitmq field",
+			json: `{
+				"request": {"queue": "q", "api_key": "k", "exchange": "e"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "rabbitmq request with simplemq field",
+			json: `{
+				"rabbitmq": {"url": "amqp://localhost"},
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+			}`,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
+			cfg, err := parseConfig([]byte(tt.json))
+			if err != nil {
+				if !tt.wantErr {
+					t.Errorf("parseConfig/Validate error = %v, wantErr %v", err, tt.wantErr)
+				}
+				return
+			}
+			err = cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -161,22 +239,21 @@ func TestValidateConfig(t *testing.T) {
 }
 
 func TestApplyDefaults(t *testing.T) {
-	cfg := &Config{
-		SimpleMQ: SimpleMQConfig{APIURL: "https://example.com"},
-		Request:  RequestConfig{Queue: "q", APIKey: "k"},
-		Response: ResponseConfig{Queue: "q", APIKey: "k"},
+	cfg := mustParseConfig(t, `{
+		"simplemq": {"api_url": "https://example.com"},
+		"request": {"queue": "q", "api_key": "k"},
+		"response": {"queue": "q", "api_key": "k"}
+	}`)
+	if cfg.SMQRequest.APIURL != "https://example.com" {
+		t.Errorf("request api_url: expected %q, got %q", "https://example.com", cfg.SMQRequest.APIURL)
 	}
-	cfg.applyDefaults()
-	if cfg.Request.APIURL != "https://example.com" {
-		t.Errorf("request api_url: expected %q, got %q", "https://example.com", cfg.Request.APIURL)
-	}
-	if cfg.Response.APIURL != "https://example.com" {
-		t.Errorf("response api_url: expected %q, got %q", "https://example.com", cfg.Response.APIURL)
+	if cfg.SMQResponse.APIURL != "https://example.com" {
+		t.Errorf("response api_url: expected %q, got %q", "https://example.com", cfg.SMQResponse.APIURL)
 	}
 }
 
 func TestGetPollingInterval(t *testing.T) {
-	r := &RequestConfig{}
+	r := &SMQRequestConfig{}
 	if d := r.GetPollingInterval(); d.String() != "1s" {
 		t.Errorf("default polling interval: expected 1s, got %s", d)
 	}

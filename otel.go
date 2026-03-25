@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const tracerName = "github.com/fujiwara/simplemq-subscriber"
+const tracerName = "github.com/fujiwara/mqsubscriber"
 
 // headerCarrier adapts mqbridge.Message.Headers for OTel propagation.
 type headerCarrier map[string]string
@@ -107,35 +107,35 @@ type Metrics struct {
 func newMetrics() (*Metrics, error) {
 	meter := otel.Meter(tracerName)
 
-	received, err := meter.Int64Counter("simplemq_subscriber.messages.received",
+	received, err := meter.Int64Counter("mqsubscriber.messages.received",
 		metric.WithDescription("Messages received from request queue"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create messages.received counter: %w", err)
 	}
 
-	processed, err := meter.Int64Counter("simplemq_subscriber.messages.processed",
+	processed, err := meter.Int64Counter("mqsubscriber.messages.processed",
 		metric.WithDescription("Messages successfully processed"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create messages.processed counter: %w", err)
 	}
 
-	errors, err := meter.Int64Counter("simplemq_subscriber.messages.errors",
+	errors, err := meter.Int64Counter("mqsubscriber.messages.errors",
 		metric.WithDescription("Message processing errors"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create messages.errors counter: %w", err)
 	}
 
-	dropped, err := meter.Int64Counter("simplemq_subscriber.messages.dropped",
+	dropped, err := meter.Int64Counter("mqsubscriber.messages.dropped",
 		metric.WithDescription("Messages dropped due to no matching handler"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create messages.dropped counter: %w", err)
 	}
 
-	duration, err := meter.Float64Histogram("simplemq_subscriber.command.duration",
+	duration, err := meter.Float64Histogram("mqsubscriber.command.duration",
 		metric.WithDescription("Command execution duration (seconds)"),
 		metric.WithUnit("s"),
 	)
@@ -197,7 +197,7 @@ func setupOTelProviders(ctx context.Context) (func(context.Context) error, error
 
 	res := resource.NewWithAttributes(
 		semconv.SchemaURL,
-		semconv.ServiceName("simplemq-subscriber"),
+		semconv.ServiceName("mqsubscriber"),
 	)
 
 	meterProvider := sdkmetric.NewMeterProvider(

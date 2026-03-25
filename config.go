@@ -21,29 +21,32 @@ const (
 	DefaultMaxConcurrency = 1
 )
 
-// Config is the top-level configuration.
-type Config struct {
-	SimpleMQ SimpleMQConfig  `json:"simplemq"`
-	Request  RequestConfig   `json:"request"`
-	Response ResponseConfig  `json:"response"`
-	Handlers []HandlerConfig `json:"handlers"`
-}
+// Backend type constants.
+const (
+	BackendSimpleMQ = "simplemq"
+	BackendRabbitMQ = "rabbitmq"
+)
 
 // SimpleMQConfig holds the global SimpleMQ settings.
 type SimpleMQConfig struct {
 	APIURL string `json:"api_url"`
 }
 
-// RequestConfig defines the request (inbound) queue.
-type RequestConfig struct {
-	SimpleMQConfig         // embedded: api_url (overrides global)
+// RabbitMQConfig holds the global RabbitMQ settings.
+type RabbitMQConfig struct {
+	URL string `json:"url"`
+}
+
+// SMQRequestConfig defines the SimpleMQ request (inbound) queue.
+type SMQRequestConfig struct {
 	Queue           string `json:"queue"`
 	APIKey          string `json:"api_key"`
+	APIURL          string `json:"api_url"`
 	PollingInterval string `json:"polling_interval"`
 }
 
 // GetPollingInterval returns the polling interval as a time.Duration.
-func (c *RequestConfig) GetPollingInterval() time.Duration {
+func (c *SMQRequestConfig) GetPollingInterval() time.Duration {
 	if c.PollingInterval == "" {
 		return DefaultPollingInterval
 	}
@@ -54,11 +57,45 @@ func (c *RequestConfig) GetPollingInterval() time.Duration {
 	return d
 }
 
-// ResponseConfig defines the response (outbound) queue.
-type ResponseConfig struct {
-	SimpleMQConfig        // embedded: api_url (overrides global)
-	Queue          string `json:"queue"`
-	APIKey         string `json:"api_key"`
+// SMQResponseConfig defines the SimpleMQ response (outbound) queue.
+type SMQResponseConfig struct {
+	Queue  string `json:"queue"`
+	APIKey string `json:"api_key"`
+	APIURL string `json:"api_url"`
+}
+
+// RMQRequestConfig defines the RabbitMQ request (inbound) queue.
+type RMQRequestConfig struct {
+	Queue           string   `json:"queue"`
+	Exchange        string   `json:"exchange"`
+	ExchangeType    string   `json:"exchange_type"`
+	RoutingKeys     []string `json:"routing_keys"`
+	ExchangePassive bool     `json:"exchange_passive"`
+}
+
+// RMQResponseConfig defines the RabbitMQ response (outbound) queue.
+type RMQResponseConfig struct {
+	Queue      string `json:"queue"`
+	ReplyTo    bool   `json:"reply_to"`
+	Exchange   string `json:"exchange"`
+	RoutingKey string `json:"routing_key"`
+}
+
+// Config is the resolved top-level configuration.
+// Backend-specific fields are in SMQ*/RMQ* structs (exactly one pair is non-nil).
+type Config struct {
+	SimpleMQ *SimpleMQConfig
+	RabbitMQ *RabbitMQConfig
+
+	RequestQueue  string
+	ResponseQueue string
+
+	SMQRequest  *SMQRequestConfig
+	SMQResponse *SMQResponseConfig
+	RMQRequest  *RMQRequestConfig
+	RMQResponse *RMQResponseConfig
+
+	Handlers []HandlerConfig
 }
 
 // ResponseIgnoreConfig defines conditions under which a response is suppressed.
@@ -100,6 +137,15 @@ func (c *HandlerConfig) GetMaxConcurrency() int {
 	return c.MaxConcurrency
 }
 
+// rawConfig is the intermediate representation for two-phase JSON parsing.
+type rawConfig struct {
+	SimpleMQ *SimpleMQConfig `json:"simplemq"`
+	RabbitMQ *RabbitMQConfig `json:"rabbitmq"`
+	Request  json.RawMessage `json:"request"`
+	Response json.RawMessage `json:"response"`
+	Handlers []HandlerConfig `json:"handlers"`
+}
+
 // LoadConfig loads and parses a configuration file (Jsonnet or JSON).
 func LoadConfig(ctx context.Context, path string) (*Config, error) {
 	jsonBytes, err := evaluateJsonnet(ctx, path)
@@ -125,14 +171,102 @@ func evaluateJsonnet(ctx context.Context, path string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func parseConfig(data []byte) (*Config, error) {
+// decodeStrict decodes JSON with DisallowUnknownFields into dst.
+func decodeStrict(data []byte, dst any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var cfg Config
-	if err := dec.Decode(&cfg); err != nil {
+	return dec.Decode(dst)
+}
+
+func parseConfig(data []byte) (*Config, error) {
+	var raw rawConfig
+	if err := decodeStrict(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	return &cfg, nil
+
+	// Backend exclusivity
+	if raw.SimpleMQ != nil && raw.RabbitMQ != nil {
+		return nil, fmt.Errorf("simplemq and rabbitmq cannot be configured simultaneously")
+	}
+
+	cfg := &Config{
+		SimpleMQ: raw.SimpleMQ,
+		RabbitMQ: raw.RabbitMQ,
+		Handlers: raw.Handlers,
+	}
+
+	// Parse backend-specific request/response configs
+	switch cfg.BackendType() {
+	case BackendRabbitMQ:
+		if err := cfg.parseRabbitMQConfigs(raw); err != nil {
+			return nil, err
+		}
+	default:
+		if err := cfg.parseSimpleMQConfigs(raw); err != nil {
+			return nil, err
+		}
+	}
+
+	return cfg, nil
+}
+
+func (c *Config) parseSimpleMQConfigs(raw rawConfig) error {
+	var req SMQRequestConfig
+	if len(raw.Request) > 0 {
+		if err := decodeStrict(raw.Request, &req); err != nil {
+			return fmt.Errorf("failed to parse request config: %w", err)
+		}
+	}
+	// Apply global SimpleMQ api_url as default
+	if req.APIURL == "" && c.SimpleMQ != nil {
+		req.APIURL = c.SimpleMQ.APIURL
+	}
+	c.SMQRequest = &req
+	c.RequestQueue = req.Queue
+
+	var res SMQResponseConfig
+	if len(raw.Response) > 0 {
+		if err := decodeStrict(raw.Response, &res); err != nil {
+			return fmt.Errorf("failed to parse response config: %w", err)
+		}
+	}
+	if res.APIURL == "" && c.SimpleMQ != nil {
+		res.APIURL = c.SimpleMQ.APIURL
+	}
+	c.SMQResponse = &res
+	c.ResponseQueue = res.Queue
+
+	return nil
+}
+
+func (c *Config) parseRabbitMQConfigs(raw rawConfig) error {
+	var req RMQRequestConfig
+	if len(raw.Request) > 0 {
+		if err := decodeStrict(raw.Request, &req); err != nil {
+			return fmt.Errorf("failed to parse request config: %w", err)
+		}
+	}
+	c.RMQRequest = &req
+	c.RequestQueue = req.Queue
+
+	var res RMQResponseConfig
+	if len(raw.Response) > 0 {
+		if err := decodeStrict(raw.Response, &res); err != nil {
+			return fmt.Errorf("failed to parse response config: %w", err)
+		}
+	}
+	c.RMQResponse = &res
+	c.ResponseQueue = res.Queue
+
+	return nil
+}
+
+// BackendType returns the MQ backend type based on configuration.
+func (c *Config) BackendType() string {
+	if c.RabbitMQ != nil {
+		return BackendRabbitMQ
+	}
+	return BackendSimpleMQ
 }
 
 // needsResponseQueue returns true if any handler has response enabled.
@@ -145,21 +279,33 @@ func (c *Config) needsResponseQueue() bool {
 	return false
 }
 
-// hasResponseQueue returns true if the response queue is configured.
+// hasResponseQueue returns true if the response destination is configured.
 func (c *Config) hasResponseQueue() bool {
-	return c.Response.Queue != "" && c.Response.APIKey != ""
+	switch c.BackendType() {
+	case BackendRabbitMQ:
+		return c.RMQResponse != nil && (c.RMQResponse.Queue != "" || c.RMQResponse.ReplyTo)
+	default:
+		return c.SMQResponse != nil && c.SMQResponse.Queue != "" && c.SMQResponse.APIKey != ""
+	}
 }
 
 // Validate checks the configuration for correctness.
 func (c *Config) Validate() error {
-	c.applyDefaults()
-
-	if c.Request.Queue == "" {
+	if c.RequestQueue == "" {
 		return fmt.Errorf("request.queue is required")
 	}
-	if c.Request.APIKey == "" {
-		return fmt.Errorf("request.api_key is required")
+
+	switch c.BackendType() {
+	case BackendRabbitMQ:
+		if err := c.validateRabbitMQ(); err != nil {
+			return err
+		}
+	default:
+		if err := c.validateSimpleMQ(); err != nil {
+			return err
+		}
 	}
+
 	if len(c.Handlers) == 0 {
 		return fmt.Errorf("at least one handler is required")
 	}
@@ -173,12 +319,34 @@ func (c *Config) Validate() error {
 	hasResponse := c.hasResponseQueue()
 
 	if needsResponse && !hasResponse {
-		return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
+		switch c.BackendType() {
+		case BackendRabbitMQ:
+			return fmt.Errorf("response.queue or response.reply_to is required when any handler has response enabled")
+		default:
+			return fmt.Errorf("response.queue and response.api_key are required when any handler has response enabled")
+		}
 	}
 	if !needsResponse && hasResponse {
 		slog.Warn("response queue is configured but no handler has response enabled")
 	}
 
+	return nil
+}
+
+func (c *Config) validateSimpleMQ() error {
+	if c.SMQRequest == nil || c.SMQRequest.APIKey == "" {
+		return fmt.Errorf("request.api_key is required")
+	}
+	return nil
+}
+
+func (c *Config) validateRabbitMQ() error {
+	if c.RabbitMQ == nil || c.RabbitMQ.URL == "" {
+		return fmt.Errorf("rabbitmq.url is required")
+	}
+	if c.RMQResponse != nil && c.RMQResponse.ReplyTo && c.RMQResponse.Queue != "" {
+		return fmt.Errorf("response.reply_to and response.queue cannot both be set")
+	}
 	return nil
 }
 
@@ -207,14 +375,4 @@ func (h *HandlerConfig) validate(index int) error {
 		return fmt.Errorf("handlers[%d].response_ignore.exit_code is required", index)
 	}
 	return nil
-}
-
-// applyDefaults copies global config into per-queue configs where not already set.
-func (c *Config) applyDefaults() {
-	if c.Request.APIURL == "" {
-		c.Request.SimpleMQConfig = c.SimpleMQ
-	}
-	if c.Response.APIURL == "" {
-		c.Response.SimpleMQConfig = c.SimpleMQ
-	}
 }

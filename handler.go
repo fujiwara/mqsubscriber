@@ -86,7 +86,7 @@ func (h *Handler) Match(msg *mqbridge.Message) bool {
 
 // Execute runs the command with the message body as stdin and returns the result.
 func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandResult {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "simplemq_subscriber.execute",
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "mqsubscriber.execute",
 		trace.WithAttributes(
 			attribute.String("handler", h.name),
 			attribute.String("command", h.command[0]),
@@ -171,18 +171,29 @@ func (h *Handler) shouldIgnoreResponse(result *CommandResult) bool {
 func (h *Handler) buildResponse(req *mqbridge.Message, body []byte, status string, exitCode int) *mqbridge.Message {
 	respHeaders := copyHeaders(req.Headers)
 
-	// Determine status header key prefix based on context:
-	// RabbitMQ (reply_to present) -> "rabbitmq.header." prefix for AMQP header mapping
-	// SimpleMQ-only              -> no prefix
+	// Determine status header key prefix:
+	// If the message came via RabbitMQ (has rabbitmq.exchange header), use
+	// "rabbitmq.header." prefix so status headers map to AMQP table entries.
+	// Otherwise (SimpleMQ-only), use plain header keys.
 	statusKey := "x-status"
 	exitCodeKey := "x-exit-code"
+	_, isRabbitMQ := req.Headers["rabbitmq.exchange"]
+	if isRabbitMQ {
+		statusKey = "rabbitmq.header." + statusKey
+		exitCodeKey = "rabbitmq.header." + exitCodeKey
+	}
+
 	if replyTo := req.Headers["rabbitmq.reply_to"]; replyTo != "" {
 		// RPC response routing: route via default exchange to the reply queue
 		respHeaders["rabbitmq.exchange"] = ""
 		respHeaders["rabbitmq.routing_key"] = replyTo
 		delete(respHeaders, "rabbitmq.reply_to")
-		statusKey = "rabbitmq.header." + statusKey
-		exitCodeKey = "rabbitmq.header." + exitCodeKey
+	} else {
+		// Non-RPC: remove request routing headers so the publisher
+		// uses its configured response queue instead of routing back
+		// to the request exchange.
+		delete(respHeaders, "rabbitmq.exchange")
+		delete(respHeaders, "rabbitmq.routing_key")
 	}
 
 	respHeaders[statusKey] = status
@@ -210,11 +221,11 @@ func tailBytes(b []byte, n int) []byte {
 }
 
 // headersToEnv converts message headers to environment variables.
-// e.g. "rabbitmq.routing_key" -> "SIMPLEMQ_HEADER_RABBITMQ_ROUTING_KEY=value"
+// e.g. "rabbitmq.routing_key" -> "MQ_HEADER_RABBITMQ_ROUTING_KEY=value"
 func headersToEnv(headers map[string]string) []string {
 	env := make([]string, 0, len(headers))
 	for k, v := range headers {
-		envKey := "SIMPLEMQ_HEADER_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(k))
+		envKey := "MQ_HEADER_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(k))
 		env = append(env, envKey+"="+v)
 	}
 	return env
