@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"maps"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ type Handler struct {
 	logger         *slog.Logger
 	metrics        *Metrics
 	attrs          attribute.Set
+	env            map[string]string
 	logMessage     string
 	logBodyFields  []string
 }
@@ -58,6 +60,7 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
 		maxConcurrency: cfg.GetMaxConcurrency(),
 		logger:         logger.With("handler", cfg.Name),
 		metrics:        m,
+		env:            cfg.Env,
 		logMessage:     cfg.LogMessage,
 		logBodyFields:  cfg.LogBodyFields,
 		attrs: attribute.NewSet(
@@ -102,8 +105,8 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	cmd := exec.CommandContext(cmdCtx, h.command[0], h.command[1:]...)
 	cmd.Stdin = bytes.NewReader(msg.Body)
 
-	// Set headers as environment variables
-	cmd.Env = headersToEnv(msg.Headers)
+	// Set environment variables: inherit parent process env, overlay handler env, then message headers
+	cmd.Env = buildEnv(h.env, msg.Headers)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -220,12 +223,17 @@ func tailBytes(b []byte, n int) []byte {
 	return b[len(b)-n:]
 }
 
-// headersToEnv converts message headers to environment variables.
-// e.g. "rabbitmq.routing_key" -> "MQ_HEADER_RABBITMQ_ROUTING_KEY=value"
-func headersToEnv(headers map[string]string) []string {
-	env := make([]string, 0, len(headers))
+// buildEnv constructs the environment variables for a command.
+// It starts with the parent process environment, overlays handler-specific env,
+// then adds message headers as MQ_HEADER_* variables.
+func buildEnv(handlerEnv map[string]string, headers map[string]string) []string {
+	env := os.Environ()
+	for k, v := range handlerEnv {
+		env = append(env, k+"="+v)
+	}
+	replacer := strings.NewReplacer(".", "_", "-", "_")
 	for k, v := range headers {
-		envKey := "MQ_HEADER_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(k))
+		envKey := "MQ_HEADER_" + strings.ToUpper(replacer.Replace(k))
 		env = append(env, envKey+"="+v)
 	}
 	return env
