@@ -26,8 +26,8 @@ github.com/fujiwara/mqbridge v0.3.1 h1:HS1kMgR2Ik77OVAvDai+7zjRuqkxsIvvEVa9+Og3n
 github.com/fujiwara/mqbridge v0.3.1/go.mod h1:HdggHbQD0kl+cLxQdseuZ6kzE8lsXKclvjApZx33O38=
 github.com/fujiwara/sakura-secrets-cli v0.3.0 h1:dIwj2u+c16ZsSh/DjA2octkW3EHBF61B/5MJnwe48N8=
 github.com/fujiwara/sakura-secrets-cli v0.3.0/go.mod h1:u7wdFkMXan+O8WZO89hA3zZ3DABjKiZZja/nsDsFUfg=
-github.com/fujiwara/simplemq-cli v0.7.1 h1:MddPDrqaHeyS9non0uxZJ3zMvL7HxWBOJz2LxuRFusk=
-github.com/fujiwara/simplemq-cli v0.7.1/go.mod h1:sdbRiLCCkiSaVxxhXprFE++PQSqsRD1GXy5g/svLCxc=
+github.com/fujiwara/simplemq-cli v0.8.0 h1:ljZFRcj3FYT9B+9J2IzeDJgFF7jUt8qRf1ZZFyQt7YA=
+github.com/fujiwara/simplemq-cli v0.8.0/go.mod h1:sdbRiLCCkiSaVxxhXprFE++PQSqsRD1GXy5g/svLCxc=
 github.com/fujiwara/sloghandler v0.1.0 h1:4uxE5z01fKv/qzUoIyYk/2H1D4xEb/wi2K/Wks9z5Tg=
 github.com/fujiwara/sloghandler v0.1.0/go.mod h1:9wl7zZ1fO53Gl83/M8KFYW+5iACiwXAltOL5REOUd24=
 github.com/ghodss/yaml v1.0.0 h1:wQHKEahhL6wmXdzwWG11gIVCkOv05bNOh+Rxn0yngAk=
