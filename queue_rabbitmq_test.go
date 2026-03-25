@@ -1,31 +1,35 @@
-//go:build integration
-
 package subscriber
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/fujiwara/mqbridge"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 )
 
-func setupRabbitMQ(t *testing.T, ctx context.Context) string {
+const testRabbitMQURL = "amqp://guest:guest@localhost:5672/"
+
+// requireRabbitMQ returns a RabbitMQ AMQP URL if available.
+// In CI, fails the test if RabbitMQ is not reachable.
+// Locally, skips the test.
+func requireRabbitMQ(t *testing.T) string {
 	t.Helper()
-	container, err := rabbitmq.Run(ctx, "rabbitmq:3-management")
-	if err != nil {
-		t.Fatalf("failed to start RabbitMQ container: %v", err)
+	url := os.Getenv("RABBITMQ_URL")
+	if url == "" {
+		url = testRabbitMQURL
 	}
-	t.Cleanup(func() {
-		container.Terminate(ctx)
-	})
-	url, err := container.AmqpURL(ctx)
+	conn, err := amqp.Dial(url)
 	if err != nil {
-		t.Fatalf("failed to get AMQP URL: %v", err)
+		if os.Getenv("CI") != "" {
+			t.Fatalf("RabbitMQ required in CI: %v", err)
+		}
+		t.Skipf("RabbitMQ not available, skipping: %v", err)
 	}
+	conn.Close()
 	return url
 }
 
@@ -86,8 +90,8 @@ func consumeFromRabbitMQ(t *testing.T, url, queue string, timeout time.Duration)
 }
 
 func TestRabbitMQBlockingHandler(t *testing.T) {
+	url := requireRabbitMQ(t)
 	ctx := t.Context()
-	url := setupRabbitMQ(t, ctx)
 
 	reqExchange := uniqueName("req-exchange")
 	reqQueue := uniqueName("req-rmq")
@@ -125,7 +129,7 @@ func TestRabbitMQBlockingHandler(t *testing.T) {
 	defer appCancel()
 
 	go app.Run(appCtx)
-	time.Sleep(500 * time.Millisecond) // wait for connection
+	time.Sleep(500 * time.Millisecond)
 
 	testBody := fmt.Sprintf("rabbitmq-test-%d", time.Now().UnixNano())
 	publishToRabbitMQ(t, url, reqExchange, "echo", []byte(testBody), nil)
@@ -142,8 +146,8 @@ func TestRabbitMQBlockingHandler(t *testing.T) {
 }
 
 func TestRabbitMQNonBlockingHandler(t *testing.T) {
+	url := requireRabbitMQ(t)
 	ctx := t.Context()
-	url := setupRabbitMQ(t, ctx)
 
 	reqExchange := uniqueName("req-exchange")
 	reqQueue := uniqueName("req-rmq-nb")
@@ -198,8 +202,8 @@ func TestRabbitMQNonBlockingHandler(t *testing.T) {
 }
 
 func TestRabbitMQCommandFailure(t *testing.T) {
+	url := requireRabbitMQ(t)
 	ctx := t.Context()
-	url := setupRabbitMQ(t, ctx)
 
 	reqExchange := uniqueName("req-exchange")
 	reqQueue := uniqueName("req-rmq-fail")
