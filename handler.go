@@ -31,41 +31,43 @@ type CommandResult struct {
 
 // Handler matches messages by headers and executes a command.
 type Handler struct {
-	name           string
-	match          map[string]string
-	matchPattern   bool // when true, use AMQP topic-style pattern matching
-	command        []string
-	timeout        time.Duration
-	blocking       bool
-	response       bool
-	responseIgnore *ResponseIgnoreConfig
-	maxConcurrency int
-	sem            chan struct{} // semaphore for non-blocking concurrency control
-	logger         *slog.Logger
-	metrics        *Metrics
-	attrs          attribute.Set
-	env            map[string]string
-	logMessage     string
-	logBodyFields  []string
+	name            string
+	match           map[string]string
+	matchPattern    bool // when true, use AMQP topic-style pattern matching
+	command         []string
+	timeout         time.Duration
+	blocking        bool
+	response        bool
+	responseIgnore  *ResponseIgnoreConfig
+	maxConcurrency  int
+	sem             chan struct{} // semaphore for non-blocking concurrency control
+	logger          *slog.Logger
+	metrics         *Metrics
+	attrs           attribute.Set
+	env             map[string]string
+	logMessage      string
+	logHeaderFields []string
+	logBodyFields   []string
 }
 
 // NewHandler creates a Handler from config.
 func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) (*Handler, error) {
 	h := &Handler{
-		name:           cfg.Name,
-		match:          cfg.Match,
-		matchPattern:   cfg.MatchPattern,
-		command:        cfg.Command,
-		timeout:        cfg.GetTimeout(),
-		blocking:       cfg.Blocking,
-		response:       cfg.Response,
-		responseIgnore: cfg.ResponseIgnore,
-		maxConcurrency: cfg.GetMaxConcurrency(),
-		logger:         logger.With("handler", cfg.Name),
-		metrics:        m,
-		env:            cfg.Env,
-		logMessage:     cfg.LogMessage,
-		logBodyFields:  cfg.LogBodyFields,
+		name:            cfg.Name,
+		match:           cfg.Match,
+		matchPattern:    cfg.MatchPattern,
+		command:         cfg.Command,
+		timeout:         cfg.GetTimeout(),
+		blocking:        cfg.Blocking,
+		response:        cfg.Response,
+		responseIgnore:  cfg.ResponseIgnore,
+		maxConcurrency:  cfg.GetMaxConcurrency(),
+		logger:          logger.With("handler", cfg.Name),
+		metrics:         m,
+		env:             cfg.Env,
+		logMessage:      cfg.LogMessage,
+		logHeaderFields: cfg.LogHeaderFields,
+		logBodyFields:   cfg.LogBodyFields,
 		attrs: attribute.NewSet(
 			attribute.String("handler", cfg.Name),
 		),
@@ -254,12 +256,17 @@ func buildEnv(handlerEnv map[string]string, headers map[string]string) []string 
 	return env
 }
 
-// logHandlerMessage logs a custom message with selected body fields.
+// logHandlerMessage logs a custom message with selected header and body fields.
 func (h *Handler) logHandlerMessage(ctx context.Context, msg *mqbridge.Message, msgID string) {
 	if h.logMessage == "" {
 		return
 	}
 	attrs := []any{"messageId", msgID}
+	for _, field := range h.logHeaderFields {
+		if v, ok := msg.Headers[field]; ok {
+			attrs = append(attrs, "header."+field, v)
+		}
+	}
 	if len(h.logBodyFields) > 0 {
 		var body map[string]any
 		if err := json.Unmarshal(msg.Body, &body); err != nil {

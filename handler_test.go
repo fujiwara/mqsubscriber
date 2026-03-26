@@ -593,6 +593,62 @@ func TestLogHandlerMessage(t *testing.T) {
 		h.logHandlerMessage(t.Context(), msg, "msg-1")
 	})
 
+	t.Run("with log_header_fields", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:            "test",
+			Match:           map[string]string{"x-type": "order"},
+			Command:         []string{"echo"},
+			LogMessage:      "processing order",
+			LogHeaderFields: []string{"rabbitmq.routing_key", "x-type"},
+		}, m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{
+				"x-type":               "order",
+				"rabbitmq.routing_key": "order.created",
+				"rabbitmq.exchange":    "events",
+			},
+			Body: []byte(`{}`),
+		}
+		// Should log header.rabbitmq.routing_key and header.x-type but not header.rabbitmq.exchange
+		h.logHandlerMessage(t.Context(), msg, "msg-h1")
+	})
+
+	t.Run("with log_header_fields and log_body_fields", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:            "test",
+			Match:           map[string]string{"x-type": "order"},
+			Command:         []string{"echo"},
+			LogMessage:      "processing order",
+			LogHeaderFields: []string{"rabbitmq.routing_key"},
+			LogBodyFields:   []string{"order_id"},
+		}, m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{
+				"x-type":               "order",
+				"rabbitmq.routing_key": "order.created",
+			},
+			Body: []byte(`{"order_id":"ORD-001"}`),
+		}
+		// Should log both header and body fields
+		h.logHandlerMessage(t.Context(), msg, "msg-h2")
+	})
+
+	t.Run("with log_header_fields missing header", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:            "test",
+			Match:           map[string]string{"x-type": "order"},
+			Command:         []string{"echo"},
+			LogMessage:      "processing order",
+			LogHeaderFields: []string{"nonexistent-header"},
+		}, m)
+		msg := &mqbridge.Message{
+			Headers: map[string]string{"x-type": "order"},
+			Body:    []byte(`{}`),
+		}
+		// Missing header should be silently skipped
+		h.logHandlerMessage(t.Context(), msg, "msg-h3")
+	})
+
 	t.Run("with log_message only (no body fields)", func(t *testing.T) {
 		h := newTestHandler(t, HandlerConfig{
 			Name:       "test",

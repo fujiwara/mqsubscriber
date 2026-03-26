@@ -50,6 +50,7 @@ go fmt ./...
 - `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
 - `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is acked but no response published). Requires `response: true`
 - `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
+- `HandlerConfig.LogHeaderFields` is `[]string` — message header keys to include in log as `header.<key>` attributes. Missing headers are silently skipped
 - `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
 - Response queue is optional — required only when any handler has `response: true`
 - Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
