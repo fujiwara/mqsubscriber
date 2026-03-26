@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.4.1](https://github.com/fujiwara/mqsubscriber/compare/v0.4.0...v0.4.1) - 2026-03-26
+- Add log_header_fields option for handler logging by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/13
+
 ## [v0.4.0](https://github.com/fujiwara/mqsubscriber/compare/v0.3.1...v0.4.0) - 2026-03-26
 - Add match_pattern option for AMQP topic-style wildcard matching by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/11
 
