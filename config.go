@@ -123,18 +123,19 @@ type ResponseIgnoreConfig struct {
 
 // HandlerConfig defines a handler that matches messages and executes a command.
 type HandlerConfig struct {
-	Name           string                `json:"name"`
-	Match          map[string]string     `json:"match"`
-	MatchPattern   bool                  `json:"match_pattern"`
-	Command        []string              `json:"command"`
-	Timeout        string                `json:"timeout"`
-	Blocking       bool                  `json:"blocking"`
-	MaxConcurrency int                   `json:"max_concurrency"`
-	Response       bool                  `json:"response"`
-	ResponseIgnore *ResponseIgnoreConfig `json:"response_ignore"`
-	Env            map[string]string     `json:"env"`
-	LogMessage     string                `json:"log_message"`
-	LogBodyFields  []string              `json:"log_body_fields"`
+	Name            string                `json:"name"`
+	Match           map[string]string     `json:"match"`
+	MatchPattern    bool                  `json:"match_pattern"`
+	Command         []string              `json:"command"`
+	Timeout         string                `json:"timeout"`
+	Blocking        bool                  `json:"blocking"`
+	MaxConcurrency  int                   `json:"max_concurrency"`
+	Response        bool                  `json:"response"`
+	ResponseIgnore  *ResponseIgnoreConfig `json:"response_ignore"`
+	Env             map[string]string     `json:"env"`
+	LogMessage      string                `json:"log_message"`
+	LogHeaderFields []string              `json:"log_header_fields"`
+	LogBodyFields   []string              `json:"log_body_fields"`
 }
 
 // GetTimeout returns the command timeout as a time.Duration.
