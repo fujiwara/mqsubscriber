@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fujiwara/mqbridge"
+	"github.com/fujiwara/trabbits/pattern"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -32,6 +33,7 @@ type CommandResult struct {
 type Handler struct {
 	name           string
 	match          map[string]string
+	matchPattern   bool // when true, use AMQP topic-style pattern matching
 	command        []string
 	timeout        time.Duration
 	blocking       bool
@@ -48,10 +50,11 @@ type Handler struct {
 }
 
 // NewHandler creates a Handler from config.
-func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
+func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) (*Handler, error) {
 	h := &Handler{
 		name:           cfg.Name,
 		match:          cfg.Match,
+		matchPattern:   cfg.MatchPattern,
 		command:        cfg.Command,
 		timeout:        cfg.GetTimeout(),
 		blocking:       cfg.Blocking,
@@ -70,18 +73,30 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) *Handler {
 	if !h.blocking {
 		h.sem = make(chan struct{}, h.maxConcurrency)
 	}
-	return h
+	return h, nil
 }
 
-// Match returns true if all match conditions are satisfied by the message headers (exact match).
+// Match returns true if all match conditions are satisfied by the message headers.
+// When match_pattern is enabled, values are matched using AMQP topic-style patterns
+// (* matches one dot-delimited word, # matches zero or more words).
+// Otherwise, values must match exactly.
 func (h *Handler) Match(msg *mqbridge.Message) bool {
 	if msg.Headers == nil {
 		return false
 	}
 	for key, want := range h.match {
 		got, ok := msg.Headers[key]
-		if !ok || got != want {
+		if !ok {
 			return false
+		}
+		if h.matchPattern {
+			if !pattern.Match(got, want) {
+				return false
+			}
+		} else {
+			if got != want {
+				return false
+			}
 		}
 	}
 	return true

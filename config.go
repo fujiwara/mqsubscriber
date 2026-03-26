@@ -125,6 +125,7 @@ type ResponseIgnoreConfig struct {
 type HandlerConfig struct {
 	Name           string                `json:"name"`
 	Match          map[string]string     `json:"match"`
+	MatchPattern   bool                  `json:"match_pattern"`
 	Command        []string              `json:"command"`
 	Timeout        string                `json:"timeout"`
 	Blocking       bool                  `json:"blocking"`
