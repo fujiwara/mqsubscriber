@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.4.0](https://github.com/fujiwara/mqsubscriber/compare/v0.3.1...v0.4.0) - 2026-03-26
+- Add match_pattern option for AMQP topic-style wildcard matching by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/11
+
 ## [v0.3.1](https://github.com/fujiwara/mqsubscriber/compare/v0.3.0...v0.3.1) - 2026-03-25
 - Rename request.routing_keys to request.routing_key by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/9
 
