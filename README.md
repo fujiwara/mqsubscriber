@@ -253,9 +253,32 @@ INFO processing notification  handler=notify messageId=abc123 body.notification_
 
 ### Handler Matching
 
-- `match` defines header key-value pairs that must **all** match exactly (AND condition)
+- `match` defines header key-value pairs that must **all** match (AND condition)
+- By default, values must match **exactly**
+- Set `match_pattern: true` to enable **AMQP topic-style pattern matching** on all match values:
+  - `*` matches exactly **one** dot-delimited word (e.g., `order.*` matches `order.created` but not `order.created.v2`)
+  - `#` matches **zero or more** dot-delimited words (e.g., `order.#` matches `order`, `order.created`, and `order.created.v2`)
+  - Values without `*` or `#` still match exactly, so you can mix patterns and literal values
 - Handlers are evaluated in order; the **first match wins**
 - Messages that match no handler are logged and dropped
+
+Example with pattern matching:
+
+```jsonnet
+{
+  handlers: [
+    {
+      name: "order-handler",
+      match: {
+        "rabbitmq.routing_key": "order.*",   // matches order.created, order.updated, etc.
+        "rabbitmq.header.x-env": "production",  // exact match
+      },
+      match_pattern: true,
+      command: ["/usr/local/bin/handle-order.sh"],
+    },
+  ],
+}
+```
 
 ### Blocking vs Non-blocking
 

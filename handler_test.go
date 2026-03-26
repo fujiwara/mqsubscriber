@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/fujiwara/mqbridge"
+	"github.com/fujiwara/trabbits/pattern"
 )
 
 func newTestMetrics(t *testing.T) *Metrics {
@@ -17,16 +18,25 @@ func newTestMetrics(t *testing.T) *Metrics {
 	return m
 }
 
+func newTestHandler(t *testing.T, cfg HandlerConfig, m *Metrics) *Handler {
+	t.Helper()
+	h, err := NewHandler(cfg, slog.Default(), m)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+	return h
+}
+
 func TestHandlerMatch(t *testing.T) {
 	m := newTestMetrics(t)
-	h := NewHandler(HandlerConfig{
+	h := newTestHandler(t, HandlerConfig{
 		Name: "test",
 		Match: map[string]string{
 			"rabbitmq.routing_key":  "deploy",
 			"rabbitmq.header.x-env": "production",
 		},
 		Command: []string{"echo"},
-	}, slog.Default(), m)
+	}, m)
 
 	tests := []struct {
 		name    string
@@ -79,14 +89,184 @@ func TestHandlerMatch(t *testing.T) {
 	}
 }
 
+func TestHandlerMatchPattern(t *testing.T) {
+	m := newTestMetrics(t)
+	h := newTestHandler(t, HandlerConfig{
+		Name: "test-pattern",
+		Match: map[string]string{
+			"rabbitmq.routing_key": "order.*",
+			"x-env":                "production",
+		},
+		MatchPattern: true,
+		Command:      []string{"echo"},
+	}, m)
+
+	tests := []struct {
+		name    string
+		headers map[string]string
+		want    bool
+	}{
+		{
+			name: "star matches one word",
+			headers: map[string]string{
+				"rabbitmq.routing_key": "order.created",
+				"x-env":                "production",
+			},
+			want: true,
+		},
+		{
+			name: "star does not match two words",
+			headers: map[string]string{
+				"rabbitmq.routing_key": "order.created.v2",
+				"x-env":                "production",
+			},
+			want: false,
+		},
+		{
+			name: "exact value still works in pattern mode",
+			headers: map[string]string{
+				"rabbitmq.routing_key": "order.created",
+				"x-env":                "staging",
+			},
+			want: false,
+		},
+		{
+			name: "star matches empty trailing word",
+			headers: map[string]string{
+				"rabbitmq.routing_key": "order.",
+				"x-env":                "production",
+			},
+			want: true,
+		},
+		{
+			name:    "nil headers",
+			headers: nil,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := &mqbridge.Message{Body: []byte("test"), Headers: tt.headers}
+			if got := h.Match(msg); got != tt.want {
+				t.Errorf("Match() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandlerMatchPatternHash(t *testing.T) {
+	m := newTestMetrics(t)
+
+	tests := []struct {
+		name    string
+		pattern string
+		value   string
+		want    bool
+	}{
+		{"hash matches zero words", "order.#", "order", false},
+		{"hash matches one word", "order.#", "order.created", true},
+		{"hash matches multiple words", "order.#", "order.created.v2", true},
+		{"hash alone matches anything", "#", "anything.at.all", true},
+		{"hash alone matches single word", "#", "single", true},
+		{"hash at start", "#.error", "a.b.error", true},
+		{"hash at start single word prefix", "#.error", "error", false},
+		{"hash in middle", "order.#.done", "order.created.done", true},
+		{"hash in middle multiple", "order.#.done", "order.a.b.done", true},
+		{"hash in middle zero", "order.#.done", "order.done", true},
+		{"no match", "order.#", "user.created", false},
+		{"star and hash combined", "order.*.#", "order.created", true},
+		{"star and hash combined multi", "order.*.#", "order.created.v2.final", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHandler(t, HandlerConfig{
+				Name: "test",
+				Match: map[string]string{
+					"key": tt.pattern,
+				},
+				MatchPattern: true,
+				Command:      []string{"echo"},
+			}, m)
+			msg := &mqbridge.Message{
+				Body:    []byte("test"),
+				Headers: map[string]string{"key": tt.value},
+			}
+			if got := h.Match(msg); got != tt.want {
+				t.Errorf("Match(%q, %q) = %v, want %v", tt.pattern, tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTopicMatch(t *testing.T) {
+	tests := []struct {
+		pattern string
+		match   []string
+		noMatch []string
+	}{
+		{
+			pattern: "order.created",
+			match:   []string{"order.created"},
+			noMatch: []string{"order.updated", "order.created.v2", "order"},
+		},
+		{
+			pattern: "order.*",
+			match:   []string{"order.created", "order.updated"},
+			noMatch: []string{"order", "order.created.v2", "user.created"},
+		},
+		{
+			pattern: "*.created",
+			match:   []string{"order.created", "user.created"},
+			noMatch: []string{"created", "order.user.created"},
+		},
+		{
+			pattern: "#",
+			match:   []string{"anything", "a.b.c", ""},
+			noMatch: []string{},
+		},
+		{
+			pattern: "order.#",
+			match:   []string{"order.created", "order.a.b.c"},
+			noMatch: []string{"order", "user.created", "orders"},
+		},
+		{
+			pattern: "#.error",
+			match:   []string{"a.error", "a.b.error"},
+			noMatch: []string{"error", "error.log", "a.error.b"},
+		},
+		{
+			pattern: "a.#.z",
+			match:   []string{"a.z", "a.b.z", "a.b.c.z"},
+			noMatch: []string{"a", "z", "a.b.c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			for _, s := range tt.match {
+				if !pattern.Match(s, tt.pattern) {
+					t.Errorf("pattern %q should match %q", tt.pattern, s)
+				}
+			}
+			for _, s := range tt.noMatch {
+				if pattern.Match(s, tt.pattern) {
+					t.Errorf("pattern %q should NOT match %q", tt.pattern, s)
+				}
+			}
+		})
+	}
+}
+
 func TestHandlerExecute(t *testing.T) {
 	m := newTestMetrics(t)
-	h := NewHandler(HandlerConfig{
+	h := newTestHandler(t, HandlerConfig{
 		Name:    "echo",
 		Match:   map[string]string{"k": "v"},
 		Command: []string{"cat"},
 		Timeout: "5s",
-	}, slog.Default(), m)
+	}, m)
 
 	msg := &mqbridge.Message{
 		Body: []byte("hello world"),
@@ -110,12 +290,12 @@ func TestHandlerExecute(t *testing.T) {
 
 func TestHandlerExecuteTransform(t *testing.T) {
 	m := newTestMetrics(t)
-	h := NewHandler(HandlerConfig{
+	h := newTestHandler(t, HandlerConfig{
 		Name:    "upper",
 		Match:   map[string]string{"k": "v"},
 		Command: []string{"tr", "a-z", "A-Z"},
 		Timeout: "5s",
-	}, slog.Default(), m)
+	}, m)
 
 	msg := &mqbridge.Message{
 		Body:    []byte("hello"),
@@ -135,12 +315,12 @@ func TestHandlerExecuteFailure(t *testing.T) {
 	m := newTestMetrics(t)
 
 	t.Run("returns error and exit code", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:    "fail",
 			Match:   map[string]string{"k": "v"},
 			Command: []string{"sh", "-c", "echo 'something went wrong' >&2; exit 1"},
 			Timeout: "5s",
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{Body: []byte("test"), Headers: map[string]string{"k": "v"}}
 		result := h.Execute(t.Context(), msg)
@@ -156,12 +336,12 @@ func TestHandlerExecuteFailure(t *testing.T) {
 	})
 
 	t.Run("captures large stderr", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:    "fail-large-stderr",
 			Match:   map[string]string{"k": "v"},
 			Command: []string{"sh", "-c", "head -c 8192 /dev/zero | tr '\\0' 'X' >&2; exit 1"},
 			Timeout: "5s",
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{
 			Body:    []byte("test"),
@@ -179,12 +359,12 @@ func TestHandlerExecuteFailure(t *testing.T) {
 
 func TestHandlerExecuteTimeout(t *testing.T) {
 	m := newTestMetrics(t)
-	h := NewHandler(HandlerConfig{
+	h := newTestHandler(t, HandlerConfig{
 		Name:    "slow",
 		Match:   map[string]string{"k": "v"},
 		Command: []string{"sleep", "10"},
 		Timeout: "100ms",
-	}, slog.Default(), m)
+	}, m)
 
 	msg := &mqbridge.Message{Body: []byte("test"), Headers: map[string]string{"k": "v"}}
 	result := h.Execute(context.Background(), msg)
@@ -197,12 +377,12 @@ func TestBuildResponse(t *testing.T) {
 	m := newTestMetrics(t)
 
 	t.Run("without reply_to preserves headers", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:     "test",
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"cat"},
 			Response: true,
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{
 			Body: []byte("request"),
@@ -227,12 +407,12 @@ func TestBuildResponse(t *testing.T) {
 	})
 
 	t.Run("with reply_to routes to reply queue", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:     "rpc",
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"cat"},
 			Response: true,
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{
 			Body: []byte("request"),
@@ -267,12 +447,12 @@ func TestBuildResponse(t *testing.T) {
 	})
 
 	t.Run("error response with exit code", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:     "fail",
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"false"},
 			Response: true,
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{
 			Body: []byte("test"),
@@ -296,12 +476,12 @@ func TestBuildResponse(t *testing.T) {
 	})
 
 	t.Run("error response with reply_to uses rabbitmq.header prefix", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:     "fail-rpc",
 			Match:    map[string]string{"k": "v"},
 			Command:  []string{"false"},
 			Response: true,
-		}, slog.Default(), m)
+		}, m)
 
 		msg := &mqbridge.Message{
 			Body: []byte("test"),
@@ -333,11 +513,11 @@ func TestShouldIgnoreResponse(t *testing.T) {
 	m := newTestMetrics(t)
 
 	t.Run("nil config", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:    "test",
 			Match:   map[string]string{"k": "v"},
 			Command: []string{"echo"},
-		}, slog.Default(), m)
+		}, m)
 		if h.shouldIgnoreResponse(&CommandResult{ExitCode: 99}) {
 			t.Error("expected false when responseIgnore is nil")
 		}
@@ -345,13 +525,13 @@ func TestShouldIgnoreResponse(t *testing.T) {
 
 	t.Run("matching exit code", func(t *testing.T) {
 		exitCode := 99
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:           "test",
 			Match:          map[string]string{"k": "v"},
 			Command:        []string{"echo"},
 			Response:       true,
 			ResponseIgnore: &ResponseIgnoreConfig{ExitCode: &exitCode},
-		}, slog.Default(), m)
+		}, m)
 		if !h.shouldIgnoreResponse(&CommandResult{ExitCode: 99}) {
 			t.Error("expected true for matching exit code")
 		}
@@ -359,13 +539,13 @@ func TestShouldIgnoreResponse(t *testing.T) {
 
 	t.Run("non-matching exit code", func(t *testing.T) {
 		exitCode := 99
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:           "test",
 			Match:          map[string]string{"k": "v"},
 			Command:        []string{"echo"},
 			Response:       true,
 			ResponseIgnore: &ResponseIgnoreConfig{ExitCode: &exitCode},
-		}, slog.Default(), m)
+		}, m)
 		if h.shouldIgnoreResponse(&CommandResult{ExitCode: 1}) {
 			t.Error("expected false for non-matching exit code")
 		}
@@ -398,13 +578,13 @@ func TestLogHandlerMessage(t *testing.T) {
 	m := newTestMetrics(t)
 
 	t.Run("with log_message and log_body_fields", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:          "test",
 			Match:         map[string]string{"x-type": "order"},
 			Command:       []string{"echo"},
 			LogMessage:    "processing order",
 			LogBodyFields: []string{"order_id", "status"},
-		}, slog.Default(), m)
+		}, m)
 		msg := &mqbridge.Message{
 			Headers: map[string]string{"x-type": "order"},
 			Body:    []byte(`{"order_id":"ORD-001","status":"pending","secret":"s3cret"}`),
@@ -414,12 +594,12 @@ func TestLogHandlerMessage(t *testing.T) {
 	})
 
 	t.Run("with log_message only (no body fields)", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:       "test",
 			Match:      map[string]string{"x-type": "order"},
 			Command:    []string{"echo"},
 			LogMessage: "got a message",
-		}, slog.Default(), m)
+		}, m)
 		msg := &mqbridge.Message{
 			Headers: map[string]string{"x-type": "order"},
 			Body:    []byte(`not json`),
@@ -429,11 +609,11 @@ func TestLogHandlerMessage(t *testing.T) {
 	})
 
 	t.Run("no log_message configured", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:    "test",
 			Match:   map[string]string{"x-type": "order"},
 			Command: []string{"echo"},
-		}, slog.Default(), m)
+		}, m)
 		msg := &mqbridge.Message{
 			Headers: map[string]string{"x-type": "order"},
 			Body:    []byte(`{"order_id":"ORD-001"}`),
@@ -443,13 +623,13 @@ func TestLogHandlerMessage(t *testing.T) {
 	})
 
 	t.Run("invalid JSON body with log_body_fields", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:          "test",
 			Match:         map[string]string{"x-type": "order"},
 			Command:       []string{"echo"},
 			LogMessage:    "process",
 			LogBodyFields: []string{"order_id"},
-		}, slog.Default(), m)
+		}, m)
 		msg := &mqbridge.Message{
 			Headers: map[string]string{"x-type": "order"},
 			Body:    []byte(`not json`),
@@ -459,13 +639,13 @@ func TestLogHandlerMessage(t *testing.T) {
 	})
 
 	t.Run("missing field in body", func(t *testing.T) {
-		h := NewHandler(HandlerConfig{
+		h := newTestHandler(t, HandlerConfig{
 			Name:          "test",
 			Match:         map[string]string{"x-type": "order"},
 			Command:       []string{"echo"},
 			LogMessage:    "process",
 			LogBodyFields: []string{"nonexistent"},
-		}, slog.Default(), m)
+		}, m)
 		msg := &mqbridge.Message{
 			Headers: map[string]string{"x-type": "order"},
 			Body:    []byte(`{"order_id":"ORD-001"}`),

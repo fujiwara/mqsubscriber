@@ -51,7 +51,11 @@ func New(cfg *Config) (*App, error) {
 	var handlers []*Handler
 	for _, hc := range cfg.Handlers {
 		logger := slog.Default()
-		handlers = append(handlers, NewHandler(hc, logger, m))
+		h, err := NewHandler(hc, logger, m)
+		if err != nil {
+			return nil, err
+		}
+		handlers = append(handlers, h)
 	}
 
 	return &App{

@@ -46,6 +46,7 @@ go fmt ./...
 - Import `mqbridge.Message` directly — do not copy the struct
 - SimpleMQ default API URL comes from `simplemq.DefaultMessageAPIRootURL` (SDK), not hardcoded
 - Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`) are defined in `config.go`
+- `HandlerConfig.MatchPattern` is `bool` (defaults to false) — when true, match values use AMQP topic-style patterns (`*` = one word, `#` = zero or more words). Patterns are compiled to regexps at handler creation time
 - `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
 - `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is acked but no response published). Requires `response: true`
 - `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
