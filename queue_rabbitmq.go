@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ const (
 type RabbitMQReceiver struct {
 	config   *Config
 	conn     *amqp.Connection
+	netConn  net.Conn
 	ch       *amqp.Channel
 	msgs     <-chan amqp.Delivery
 	mu       sync.Mutex
@@ -39,8 +41,9 @@ func NewRabbitMQReceiver(cfg *Config, prefetch int) *RabbitMQReceiver {
 
 // connect establishes connection, declares exchange/queue, and starts consuming.
 func (r *RabbitMQReceiver) connect() error {
+	var netConn net.Conn
 	conn, err := amqp.DialConfig(r.config.RabbitMQ.URL, amqp.Config{
-		Dial: amqp.DefaultDial(r.timeout),
+		Dial: dialWithCapture(r.timeout, &netConn),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
@@ -106,6 +109,7 @@ func (r *RabbitMQReceiver) connect() error {
 	}
 
 	r.conn = conn
+	r.netConn = netConn
 	r.ch = ch
 	r.msgs = msgs
 	return nil
@@ -173,25 +177,38 @@ func (r *RabbitMQReceiver) Publish(_ context.Context, _ *mqbridge.Message) error
 }
 
 // Ack acknowledges the message.
-func (r *RabbitMQReceiver) Ack(ctx context.Context, qmsg *QueueMessage) error {
+func (r *RabbitMQReceiver) Ack(_ context.Context, qmsg *QueueMessage) error {
 	delivery, ok := qmsg.internal.(*amqp.Delivery)
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Ack: %T", qmsg.internal)
 	}
-	return withTimeout(ctx, r.timeout, func() error {
+	return r.withDeadline(func() error {
 		return delivery.Ack(false)
 	})
 }
 
 // Nack negatively acknowledges the message with requeue.
-func (r *RabbitMQReceiver) Nack(ctx context.Context, qmsg *QueueMessage) error {
+func (r *RabbitMQReceiver) Nack(_ context.Context, qmsg *QueueMessage) error {
 	delivery, ok := qmsg.internal.(*amqp.Delivery)
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Nack: %T", qmsg.internal)
 	}
-	return withTimeout(ctx, r.timeout, func() error {
+	return r.withDeadline(func() error {
 		return delivery.Nack(false, true)
 	})
+}
+
+// withDeadline sets a write deadline on the underlying TCP connection before fn
+// and clears it after. This provides timeout for operations like Ack/Nack
+// that don't support context.
+func (r *RabbitMQReceiver) withDeadline(fn func() error) error {
+	if r.netConn != nil {
+		if err := r.netConn.SetWriteDeadline(time.Now().Add(r.timeout)); err != nil {
+			return fmt.Errorf("failed to set write deadline: %w", err)
+		}
+		defer r.netConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+	}
+	return fn()
 }
 
 // Close closes the RabbitMQ connection.
@@ -211,6 +228,7 @@ func (r *RabbitMQReceiver) closeConn() {
 		r.conn.Close()
 		r.conn = nil
 	}
+	r.netConn = nil
 	r.msgs = nil
 }
 
@@ -218,6 +236,7 @@ func (r *RabbitMQReceiver) closeConn() {
 type RabbitMQPublisher struct {
 	config  *Config
 	conn    *amqp.Connection
+	netConn net.Conn
 	ch      *amqp.Channel
 	mu      sync.Mutex
 	timeout time.Duration
@@ -238,8 +257,9 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
+	var netConn net.Conn
 	conn, err := amqp.DialConfig(p.config.RabbitMQ.URL, amqp.Config{
-		Dial: amqp.DefaultDial(p.timeout),
+		Dial: dialWithCapture(p.timeout, &netConn),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
@@ -258,6 +278,7 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 		}
 	}
 	p.conn = conn
+	p.netConn = netConn
 	p.ch = ch
 	slog.Info("RabbitMQ publisher connected", "response_queue", p.config.RMQResponse.Queue)
 	return nil
@@ -323,7 +344,7 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		pub.MessageId = v
 	}
 
-	if err := withTimeout(ctx, p.timeout, func() error {
+	if err := p.withDeadline(func() error {
 		return p.ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub)
 	}); err != nil {
 		return fmt.Errorf("failed to publish to RabbitMQ exchange %q: %w", exchange, err)
@@ -339,6 +360,19 @@ func (p *RabbitMQPublisher) Ack(_ context.Context, _ *QueueMessage) error {
 // Nack is not supported on RabbitMQPublisher.
 func (p *RabbitMQPublisher) Nack(_ context.Context, _ *QueueMessage) error {
 	return fmt.Errorf("RabbitMQPublisher does not support Nack")
+}
+
+// withDeadline sets a write deadline on the underlying TCP connection before fn
+// and clears it after. This provides timeout for operations like Publish
+// that don't support context.
+func (p *RabbitMQPublisher) withDeadline(fn func() error) error {
+	if p.netConn != nil {
+		if err := p.netConn.SetWriteDeadline(time.Now().Add(p.timeout)); err != nil {
+			return fmt.Errorf("failed to set write deadline: %w", err)
+		}
+		defer p.netConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+	}
+	return fn()
 }
 
 // Close closes the RabbitMQ publisher connection.
@@ -358,10 +392,30 @@ func (p *RabbitMQPublisher) Close() error {
 		}
 		p.conn = nil
 	}
+	p.netConn = nil
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing RabbitMQ publisher: %v", errs)
 	}
 	return nil
+}
+
+// dialWithCapture returns a dial function that captures the net.Conn for later
+// deadline control. The captured conn can be used to set write deadlines on
+// operations that don't natively support context timeouts.
+func dialWithCapture(timeout time.Duration, dst *net.Conn) func(network, addr string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+		// Set deadline for AMQP handshake (cleared by the library after handshake)
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		*dst = conn
+		return conn, nil
+	}
 }
 
 // messageFromDelivery constructs a mqbridge.Message from an AMQP delivery.
@@ -388,22 +442,5 @@ func messageFromDelivery(d amqp.Delivery) *mqbridge.Message {
 	return &mqbridge.Message{
 		Body:    d.Body,
 		Headers: headers,
-	}
-}
-
-// withTimeout runs fn in a goroutine and returns an error if it exceeds the timeout.
-// This is used for RabbitMQ operations that don't natively support context timeouts.
-func withTimeout(ctx context.Context, timeout time.Duration, fn func() error) error {
-	done := make(chan error, 1)
-	go func() { done <- fn() }()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		return err
-	case <-timer.C:
-		return fmt.Errorf("operation timed out after %s", timeout)
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
