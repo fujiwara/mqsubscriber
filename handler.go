@@ -131,16 +131,15 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	elapsed := time.Since(start)
 
-	h.metrics.commandDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributeSet(h.attrs))
+	h.metrics.commandDuration.Record(ctx, elapsed.Seconds(), metric.WithAttributeSet(h.attrs))
 
 	if stderr.Len() > 0 {
 		for line := range strings.SplitSeq(strings.TrimRight(stderr.String(), "\n"), "\n") {
 			h.logger.InfoContext(ctx, line)
 		}
 	}
-
-	elapsed := time.Since(start)
 
 	result := &CommandResult{
 		Stdout:  stdout.Bytes(),
