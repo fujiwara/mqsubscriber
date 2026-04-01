@@ -136,6 +136,9 @@ mqsubscriber validate -c config.jsonnet
 
 # Render configuration as JSON
 mqsubscriber render -c config.jsonnet
+
+# Publish a message to the request queue
+mqsubscriber publish -c config.jsonnet --body 'hello' -H rabbitmq.routing_key=upper
 ```
 
 ### Options
@@ -411,6 +414,68 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.errors` | Counter | Message processing errors | `handler` |
 | `mqsubscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
+
+## Publish Subcommand
+
+The `publish` subcommand sends a message to the request queue. This is useful for debugging handlers, testing configurations, and self-invoking commands.
+
+```bash
+mqsubscriber publish -c config.jsonnet [flags]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-H key=value` | Message header (repeatable) |
+| `--body <string>` | Message body as a string |
+| `--body-file <path>` | Read message body from a file |
+| (stdin) | If neither `--body` nor `--body-file` is given, body is read from stdin |
+
+`--body` and `--body-file` are mutually exclusive.
+
+### Destination Routing
+
+**SimpleMQ backend:**
+
+Messages are always sent to `request.queue` in the config.
+
+**RabbitMQ backend:**
+
+By default, messages are sent to `request.queue` via the default exchange. You can override the destination by setting headers — this uses the same routing logic as response publishing.
+
+| Headers provided | Destination |
+|------------------|-------------|
+| (none) | Default exchange → `request.queue` |
+| `-H rabbitmq.routing_key=KEY` | Default exchange → `KEY` |
+| `-H rabbitmq.exchange=EX -H rabbitmq.routing_key=KEY` | Exchange `EX` → routing key `KEY` |
+
+### Usage Examples
+
+```bash
+# Send to the request queue (default destination)
+mqsubscriber publish -c config.jsonnet --body 'hello'
+
+# Send with routing key (matched by handler's match condition)
+mqsubscriber publish -c config.jsonnet --body 'hello' \
+  -H rabbitmq.routing_key=upper
+
+# Send to a named exchange with a routing key
+mqsubscriber publish -c config.jsonnet --body 'hello' \
+  -H rabbitmq.exchange=my-exchange -H rabbitmq.routing_key=deploy
+
+# Set custom AMQP headers (mapped via rabbitmq.header.* prefix)
+mqsubscriber publish -c config.jsonnet --body 'hello' \
+  -H rabbitmq.routing_key=upper -H rabbitmq.header.x-priority=high
+
+# Pipe body from stdin
+echo '{"action":"deploy"}' | mqsubscriber publish -c config.jsonnet \
+  -H rabbitmq.routing_key=deploy
+
+# Read body from file
+mqsubscriber publish -c config.jsonnet \
+  --body-file payload.json -H rabbitmq.routing_key=deploy
+```
 
 ## Examples
 
