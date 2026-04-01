@@ -27,6 +27,7 @@ type CommandResult struct {
 	Stderr   []byte
 	ExitCode int
 	Err      error // non-nil if command failed (non-zero exit or execution error)
+	Elapsed  time.Duration
 }
 
 // Handler matches messages by headers and executes a command.
@@ -131,8 +132,7 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 
 	err := cmd.Run()
 
-	duration := time.Since(start).Seconds()
-	h.metrics.commandDuration.Record(ctx, duration, metric.WithAttributeSet(h.attrs))
+	h.metrics.commandDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributeSet(h.attrs))
 
 	if stderr.Len() > 0 {
 		for line := range strings.SplitSeq(strings.TrimRight(stderr.String(), "\n"), "\n") {
@@ -140,10 +140,13 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 		}
 	}
 
+	elapsed := time.Since(start)
+
 	result := &CommandResult{
-		Stdout: stdout.Bytes(),
-		Stderr: stderr.Bytes(),
-		Err:    err,
+		Stdout:  stdout.Bytes(),
+		Stderr:  stderr.Bytes(),
+		Err:     err,
+		Elapsed: elapsed,
 	}
 	if err != nil {
 		if cmd.ProcessState != nil {

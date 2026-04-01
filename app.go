@@ -255,14 +255,14 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	case result.Err != nil && handler.shouldIgnoreResponse(result):
 		// response_ignore matched: suppress response, delete message
 		handler.logger.InfoContext(ctx, "response ignored by exit code",
-			"messageId", qmsg.ID, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 
 	case result.Err != nil && !handler.response:
 		// fire-and-forget failure: nack for redelivery
 		span.RecordError(result.Err)
 		span.SetStatus(codes.Error, "command execution failed")
 		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
-			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		a.nackMessage(ctx, qmsg)
 		return
@@ -270,20 +270,20 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	case result.Err != nil && handler.response:
 		// response mode failure: send error response, then delete
 		handler.logger.InfoContext(ctx, "command execution failed, sending error response",
-			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode)
+			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
 		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
 
 	case handler.response:
 		// response mode success: send success response, then delete
 		handler.logger.InfoContext(ctx, "command execution succeeded, sending success response",
-			"messageId", qmsg.ID)
+			"messageId", qmsg.ID, "elapsed", result.Elapsed)
 		resp := handler.buildResponse(msg, result.Stdout, "success", 0)
 		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
 
 	default:
 		// fire-and-forget success: just delete
-		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", qmsg.ID)
+		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", qmsg.ID, "elapsed", result.Elapsed)
 	}
 
 	a.ackMessage(ctx, qmsg)
