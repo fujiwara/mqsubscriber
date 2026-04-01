@@ -19,6 +19,9 @@ const (
 	DefaultCommandTimeout = 30 * time.Second
 	// DefaultMaxConcurrency is the default max concurrency for non-blocking handlers.
 	DefaultMaxConcurrency = 1
+	// DefaultMaxResponseChain is the default maximum number of allowed response chain hops.
+	// A value of 0 means responses that arrive back as requests are dropped (no chaining).
+	DefaultMaxResponseChain = 0
 )
 
 // Backend type constants.
@@ -113,7 +116,8 @@ type Config struct {
 	RMQRequest  *RMQRequestConfig
 	RMQResponse *RMQResponseConfig
 
-	Handlers []HandlerConfig
+	Handlers         []HandlerConfig
+	MaxResponseChain int
 }
 
 // ResponseIgnoreConfig defines conditions under which a response is suppressed.
@@ -160,11 +164,12 @@ func (c *HandlerConfig) GetMaxConcurrency() int {
 
 // rawConfig is the intermediate representation for two-phase JSON parsing.
 type rawConfig struct {
-	SimpleMQ *SimpleMQConfig `json:"simplemq"`
-	RabbitMQ *RabbitMQConfig `json:"rabbitmq"`
-	Request  json.RawMessage `json:"request"`
-	Response json.RawMessage `json:"response"`
-	Handlers []HandlerConfig `json:"handlers"`
+	SimpleMQ         *SimpleMQConfig `json:"simplemq"`
+	RabbitMQ         *RabbitMQConfig `json:"rabbitmq"`
+	Request          json.RawMessage `json:"request"`
+	Response         json.RawMessage `json:"response"`
+	Handlers         []HandlerConfig `json:"handlers"`
+	MaxResponseChain *int            `json:"max_response_chain"`
 }
 
 // LoadConfig loads and parses a configuration file (Jsonnet or JSON).
@@ -210,10 +215,16 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("simplemq and rabbitmq cannot be configured simultaneously")
 	}
 
+	maxResponseChain := DefaultMaxResponseChain
+	if raw.MaxResponseChain != nil {
+		maxResponseChain = *raw.MaxResponseChain
+	}
+
 	cfg := &Config{
-		SimpleMQ: raw.SimpleMQ,
-		RabbitMQ: raw.RabbitMQ,
-		Handlers: raw.Handlers,
+		SimpleMQ:         raw.SimpleMQ,
+		RabbitMQ:         raw.RabbitMQ,
+		Handlers:         raw.Handlers,
+		MaxResponseChain: maxResponseChain,
 	}
 
 	// Parse backend-specific request/response configs
@@ -314,6 +325,9 @@ func (c *Config) hasResponseQueue() bool {
 func (c *Config) Validate() error {
 	if c.RequestQueue == "" {
 		return fmt.Errorf("request.queue is required")
+	}
+	if c.MaxResponseChain < 0 {
+		return fmt.Errorf("max_response_chain must be 0 or greater")
 	}
 
 	switch c.BackendType() {

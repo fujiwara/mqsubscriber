@@ -103,7 +103,8 @@ func newTestSMQConfig(apiURL, reqQueue, resQueue string, handlers []HandlerConfi
 			APIKey: testAPIKey,
 			APIURL: apiURL,
 		},
-		Handlers: handlers,
+		Handlers:         handlers,
+		MaxResponseChain: DefaultMaxResponseChain,
 	}
 	return cfg
 }
@@ -554,5 +555,121 @@ func TestResponseIgnoreExitCodeNonMatch(t *testing.T) {
 	}
 	if received.Headers["x-status"] != "error" {
 		t.Errorf("x-status: expected %q, got %q", "error", received.Headers["x-status"])
+	}
+}
+
+func TestResponseChainDrop(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-chain-drop")
+	resQueue := uniqueName("res-chain-drop")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Timeout:  "5s",
+			Blocking: true,
+			Response: true,
+		},
+	})
+	// Default max_response_chain=0: messages with responded>=1 should be dropped
+
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	go app.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	// Send a message with mqsubscriber.responded=1 (simulating a response that looped back)
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("should-be-dropped"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key":   "echo",
+			"mqsubscriber.responded": "1",
+		},
+	})
+
+	// Send a normal message (no responded header) to verify the subscriber is still processing
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("normal"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key": "echo",
+		},
+	})
+
+	received := receiveTestMessage(t, ctx, client, resQueue)
+	if received == nil {
+		t.Fatal("expected response for normal message, got nil")
+	}
+	if string(received.Body) != "normal" {
+		t.Errorf("body: expected %q, got %q", "normal", string(received.Body))
+	}
+	// Verify the response has responded=1
+	if received.Headers["mqsubscriber.responded"] != "1" {
+		t.Errorf("responded: expected %q, got %q", "1", received.Headers["mqsubscriber.responded"])
+	}
+}
+
+func TestResponseChainAllow(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-chain-allow")
+	resQueue := uniqueName("res-chain-allow")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Timeout:  "5s",
+			Blocking: true,
+			Response: true,
+		},
+	})
+	cfg.MaxResponseChain = 1 // Allow one chain hop
+
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	go app.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	// Send a message with responded=1 — should be processed (max_response_chain=2)
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("chained"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key":   "echo",
+			"mqsubscriber.responded": "1",
+		},
+	})
+
+	received := receiveTestMessage(t, ctx, client, resQueue)
+	if received == nil {
+		t.Fatal("expected response for chained message, got nil")
+	}
+	if string(received.Body) != "chained" {
+		t.Errorf("body: expected %q, got %q", "chained", string(received.Body))
+	}
+	// responded should be incremented to 2
+	if received.Headers["mqsubscriber.responded"] != "2" {
+		t.Errorf("responded: expected %q, got %q", "2", received.Headers["mqsubscriber.responded"])
 	}
 }
