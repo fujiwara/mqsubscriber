@@ -78,12 +78,13 @@ func newQueueClients(cfg *Config) (reqQueue QueueClient, resQueue QueueClient, e
 			resQueue = NewRabbitMQPublisher(cfg)
 		}
 	default:
-		reqQueue, err = NewSimpleMQReceiver(cfg.SMQRequest.APIURL, cfg.SMQRequest.APIKey, cfg.SMQRequest.Queue)
+		timeout := cfg.SimpleMQ.GetTimeout()
+		reqQueue, err = NewSimpleMQReceiver(cfg.SMQRequest.APIURL, cfg.SMQRequest.APIKey, cfg.SMQRequest.Queue, timeout)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create request queue client: %w", err)
 		}
 		if cfg.hasResponseQueue() {
-			resQueue, err = NewSimpleMQPublisher(cfg.SMQResponse.APIURL, cfg.SMQResponse.APIKey, cfg.SMQResponse.Queue)
+			resQueue, err = NewSimpleMQPublisher(cfg.SMQResponse.APIURL, cfg.SMQResponse.APIKey, cfg.SMQResponse.Queue, timeout)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create response queue client: %w", err)
 			}

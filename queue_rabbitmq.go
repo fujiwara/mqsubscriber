@@ -25,6 +25,7 @@ type RabbitMQReceiver struct {
 	msgs     <-chan amqp.Delivery
 	mu       sync.Mutex
 	prefetch int
+	timeout  time.Duration
 }
 
 // NewRabbitMQReceiver creates a new RabbitMQReceiver.
@@ -32,12 +33,15 @@ func NewRabbitMQReceiver(cfg *Config, prefetch int) *RabbitMQReceiver {
 	return &RabbitMQReceiver{
 		config:   cfg,
 		prefetch: prefetch,
+		timeout:  cfg.RabbitMQ.GetTimeout(),
 	}
 }
 
 // connect establishes connection, declares exchange/queue, and starts consuming.
 func (r *RabbitMQReceiver) connect() error {
-	conn, err := amqp.Dial(r.config.RabbitMQ.URL)
+	conn, err := amqp.DialConfig(r.config.RabbitMQ.URL, amqp.Config{
+		Dial: amqp.DefaultDial(r.timeout),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
@@ -169,21 +173,25 @@ func (r *RabbitMQReceiver) Publish(_ context.Context, _ *mqbridge.Message) error
 }
 
 // Ack acknowledges the message.
-func (r *RabbitMQReceiver) Ack(_ context.Context, qmsg *QueueMessage) error {
+func (r *RabbitMQReceiver) Ack(ctx context.Context, qmsg *QueueMessage) error {
 	delivery, ok := qmsg.internal.(*amqp.Delivery)
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Ack: %T", qmsg.internal)
 	}
-	return delivery.Ack(false)
+	return withTimeout(ctx, r.timeout, func() error {
+		return delivery.Ack(false)
+	})
 }
 
 // Nack negatively acknowledges the message with requeue.
-func (r *RabbitMQReceiver) Nack(_ context.Context, qmsg *QueueMessage) error {
+func (r *RabbitMQReceiver) Nack(ctx context.Context, qmsg *QueueMessage) error {
 	delivery, ok := qmsg.internal.(*amqp.Delivery)
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Nack: %T", qmsg.internal)
 	}
-	return delivery.Nack(false, true)
+	return withTimeout(ctx, r.timeout, func() error {
+		return delivery.Nack(false, true)
+	})
 }
 
 // Close closes the RabbitMQ connection.
@@ -208,15 +216,19 @@ func (r *RabbitMQReceiver) closeConn() {
 
 // RabbitMQPublisher implements QueueClient for publishing to RabbitMQ.
 type RabbitMQPublisher struct {
-	config *Config
-	conn   *amqp.Connection
-	ch     *amqp.Channel
-	mu     sync.Mutex
+	config  *Config
+	conn    *amqp.Connection
+	ch      *amqp.Channel
+	mu      sync.Mutex
+	timeout time.Duration
 }
 
 // NewRabbitMQPublisher creates a new RabbitMQPublisher.
 func NewRabbitMQPublisher(cfg *Config) *RabbitMQPublisher {
-	return &RabbitMQPublisher{config: cfg}
+	return &RabbitMQPublisher{
+		config:  cfg,
+		timeout: cfg.RabbitMQ.GetTimeout(),
+	}
 }
 
 func (p *RabbitMQPublisher) ensureConnected() error {
@@ -226,7 +238,9 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
-	conn, err := amqp.Dial(p.config.RabbitMQ.URL)
+	conn, err := amqp.DialConfig(p.config.RabbitMQ.URL, amqp.Config{
+		Dial: amqp.DefaultDial(p.timeout),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
@@ -309,7 +323,9 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		pub.MessageId = v
 	}
 
-	if err := p.ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub); err != nil {
+	if err := withTimeout(ctx, p.timeout, func() error {
+		return p.ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub)
+	}); err != nil {
 		return fmt.Errorf("failed to publish to RabbitMQ exchange %q: %w", exchange, err)
 	}
 	return nil
@@ -372,5 +388,22 @@ func messageFromDelivery(d amqp.Delivery) *mqbridge.Message {
 	return &mqbridge.Message{
 		Body:    d.Body,
 		Headers: headers,
+	}
+}
+
+// withTimeout runs fn in a goroutine and returns an error if it exceeds the timeout.
+// This is used for RabbitMQ operations that don't natively support context timeouts.
+func withTimeout(ctx context.Context, timeout time.Duration, fn func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return fmt.Errorf("operation timed out after %s", timeout)
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

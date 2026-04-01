@@ -22,6 +22,8 @@ const (
 	// DefaultMaxResponseChain is the default maximum number of allowed response chain hops.
 	// A value of 0 means responses that arrive back as requests are dropped (no chaining).
 	DefaultMaxResponseChain = 0
+	// DefaultQueueTimeout is the default timeout for queue operations (publish, ack, nack, receive).
+	DefaultQueueTimeout = 30 * time.Second
 )
 
 // Backend type constants.
@@ -32,12 +34,35 @@ const (
 
 // SimpleMQConfig holds the global SimpleMQ settings.
 type SimpleMQConfig struct {
-	APIURL string `json:"api_url"`
+	APIURL  string `json:"api_url"`
+	Timeout string `json:"timeout"`
+}
+
+// GetTimeout returns the timeout as a time.Duration.
+func (c *SimpleMQConfig) GetTimeout() time.Duration {
+	return parseDurationOrDefault(c.Timeout, DefaultQueueTimeout)
 }
 
 // RabbitMQConfig holds the global RabbitMQ settings.
 type RabbitMQConfig struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	Timeout string `json:"timeout"`
+}
+
+// GetTimeout returns the timeout as a time.Duration.
+func (c *RabbitMQConfig) GetTimeout() time.Duration {
+	return parseDurationOrDefault(c.Timeout, DefaultQueueTimeout)
+}
+
+func parseDurationOrDefault(s string, def time.Duration) time.Duration {
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 // SMQRequestConfig defines the SimpleMQ request (inbound) queue.

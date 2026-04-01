@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/fujiwara/mqbridge"
 	simplemq "github.com/sacloud/simplemq-api-go"
@@ -29,24 +30,27 @@ func newSimpleMQClient(apiURL, apiKey string) (*message.Client, error) {
 
 // SimpleMQReceiver implements QueueClient for receiving from SimpleMQ.
 type SimpleMQReceiver struct {
-	client *message.Client
-	queue  string
-	buf    []message.Message // buffered messages from a single poll
+	client  *message.Client
+	queue   string
+	timeout time.Duration
+	buf     []message.Message // buffered messages from a single poll
 }
 
 // NewSimpleMQReceiver creates a new SimpleMQReceiver.
-func NewSimpleMQReceiver(apiURL, apiKey, queue string) (*SimpleMQReceiver, error) {
+func NewSimpleMQReceiver(apiURL, apiKey, queue string, timeout time.Duration) (*SimpleMQReceiver, error) {
 	client, err := newSimpleMQClient(apiURL, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	return &SimpleMQReceiver{client: client, queue: queue}, nil
+	return &SimpleMQReceiver{client: client, queue: queue, timeout: timeout}, nil
 }
 
 // Receive returns a single message from the queue.
 // Internally buffers multiple messages from a single poll and returns them one at a time.
 func (r *SimpleMQReceiver) Receive(ctx context.Context) (*QueueMessage, error) {
 	if len(r.buf) == 0 {
+		ctx, cancel := context.WithTimeout(ctx, r.timeout)
+		defer cancel()
 		res, err := r.client.ReceiveMessage(ctx, message.ReceiveMessageParams{
 			QueueName: message.QueueName(r.queue),
 		})
@@ -98,6 +102,8 @@ func (r *SimpleMQReceiver) Ack(ctx context.Context, qmsg *QueueMessage) error {
 	if !ok {
 		return fmt.Errorf("invalid internal type for SimpleMQ Ack: %T", qmsg.internal)
 	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
 	_, err := r.client.DeleteMessage(ctx, message.DeleteMessageParams{
 		QueueName: message.QueueName(r.queue),
 		MessageId: msgID,
@@ -117,17 +123,18 @@ func (r *SimpleMQReceiver) Close() error {
 
 // SimpleMQPublisher implements QueueClient for publishing to SimpleMQ.
 type SimpleMQPublisher struct {
-	client *message.Client
-	queue  string
+	client  *message.Client
+	queue   string
+	timeout time.Duration
 }
 
 // NewSimpleMQPublisher creates a new SimpleMQPublisher.
-func NewSimpleMQPublisher(apiURL, apiKey, queue string) (*SimpleMQPublisher, error) {
+func NewSimpleMQPublisher(apiURL, apiKey, queue string, timeout time.Duration) (*SimpleMQPublisher, error) {
 	client, err := newSimpleMQClient(apiURL, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	return &SimpleMQPublisher{client: client, queue: queue}, nil
+	return &SimpleMQPublisher{client: client, queue: queue, timeout: timeout}, nil
 }
 
 // Receive is not supported on SimpleMQPublisher.
@@ -137,6 +144,8 @@ func (p *SimpleMQPublisher) Receive(_ context.Context) (*QueueMessage, error) {
 
 // Publish sends a message to the SimpleMQ response queue.
 func (p *SimpleMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
 	data, err := mqbridge.MarshalMessage(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
