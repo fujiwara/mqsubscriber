@@ -53,6 +53,7 @@ go fmt ./...
 - `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
 - `HandlerConfig.LogHeaderFields` is `[]string` — message header keys to include in log as `header.<key>` attributes. Missing headers are silently skipped
 - `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
+- `Config.MaxResponseChain` is `int` (default 0) — number of allowed response chain hops. 0 means responses routed back as requests are dropped. N allows up to N chain hops
 - Response queue is optional — required only when any handler has `response: true`
 - Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
 - Commands inherit the parent process environment, overlaid with handler `env`, then `MQ_HEADER_*` from message headers
@@ -70,6 +71,7 @@ go fmt ./...
 - **RabbitMQ reconnection**: Exponential backoff (initial 1s, max 30s), same pattern as mqbridge.
 - **RabbitMQ prefetch**: Set to the sum of all handlers' `max_concurrency` to prevent over-fetching.
 - **Non-RPC response routing**: `buildResponse` removes `rabbitmq.exchange`/`rabbitmq.routing_key` from non-RPC responses so the publisher uses the configured response queue instead of routing back to the request exchange.
+- **Response chain guard**: `buildResponse` increments `mqsubscriber.responded` header on every response. `poll()` checks this counter against `max_response_chain` before dispatching — messages exceeding the limit are warn-logged and ack-dropped. Default limit is 0 (no chaining).
 
 ## Testing
 

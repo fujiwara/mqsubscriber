@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -195,6 +196,18 @@ func (a *App) poll(ctx context.Context) (int, error) {
 
 	a.metrics.messagesReceived.Add(msgCtx, 1)
 
+	// Check response chain depth to prevent infinite loops
+	if a.exceedsResponseChain(qmsg.Message) {
+		slog.Warn("dropping message: response chain limit reached",
+			"messageId", qmsg.ID,
+			"responded", qmsg.Message.Headers[HeaderResponseChain],
+			"max_response_chain", a.config.MaxResponseChain,
+		)
+		a.metrics.messagesDropped.Add(msgCtx, 1)
+		a.ackMessage(msgCtx, qmsg)
+		return 1, nil
+	}
+
 	handler := a.findHandler(qmsg.Message)
 	if handler == nil {
 		slog.Warn("no matching handler, dropping message",
@@ -219,6 +232,20 @@ func (a *App) poll(ctx context.Context) (int, error) {
 		})
 	}
 	return 1, nil
+}
+
+// exceedsResponseChain returns true if the message's response chain count
+// has reached or exceeded the configured max_response_chain limit.
+func (a *App) exceedsResponseChain(msg *mqbridge.Message) bool {
+	v, ok := msg.Headers[HeaderResponseChain]
+	if !ok {
+		return false
+	}
+	count, err := strconv.Atoi(v)
+	if err != nil {
+		return false
+	}
+	return count > a.config.MaxResponseChain
 }
 
 func (a *App) findHandler(msg *mqbridge.Message) *Handler {

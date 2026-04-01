@@ -305,6 +305,26 @@ Example with pattern matching:
 
 Response messages are published with retry (3 attempts, exponential backoff: 1s, 2s, 4s). If all retries are exhausted, the request message is still acknowledged to prevent command re-execution on redelivery.
 
+### Response Chain Guard
+
+When a response message is published, mqsubscriber sets the `mqsubscriber.responded` header with an incrementing counter (starting at `1`). On receiving a message, if this counter reaches the configured `max_response_chain` limit, the message is logged as a warning and dropped (acked without processing). This prevents infinite loops when a response is accidentally routed back to the request queue.
+
+The `max_response_chain` setting is a top-level config option:
+
+```jsonnet
+{
+  // ...
+  max_response_chain: 0,  // default: 0 (no chaining allowed)
+  handlers: [ /* ... */ ],
+}
+```
+
+| Value | Behavior |
+|-------|----------|
+| `0` (default) | Responses that arrive back as requests are dropped |
+| `1` | One chain hop is allowed (response → re-process → drop) |
+| `N` | Up to N chain hops are allowed |
+
 ### Response Status Headers
 
 Response messages include status headers to indicate success or failure:

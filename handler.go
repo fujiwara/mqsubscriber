@@ -223,11 +223,23 @@ func (h *Handler) buildResponse(req *mqbridge.Message, body []byte, status strin
 		respHeaders[exitCodeKey] = strconv.Itoa(exitCode)
 	}
 
+	// Increment response chain counter for loop detection
+	chainCount := 0
+	if v, ok := req.Headers[HeaderResponseChain]; ok {
+		chainCount, _ = strconv.Atoi(v)
+	}
+	respHeaders[HeaderResponseChain] = strconv.Itoa(chainCount + 1)
+
 	return &mqbridge.Message{
 		Body:    body,
 		Headers: respHeaders,
 	}
 }
+
+// HeaderResponseChain is the header key used to track response chain depth.
+// When a response is published, this value is incremented. On receive, if the
+// value reaches max_response_chain, the message is dropped to prevent loops.
+const HeaderResponseChain = "mqsubscriber.responded"
 
 // maxErrorBodySize is the maximum size of stderr included in error responses.
 // Only the last 4KB is kept, as the most relevant error information
