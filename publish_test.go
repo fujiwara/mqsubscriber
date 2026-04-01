@@ -31,10 +31,10 @@ func TestPublishCmd(t *testing.T) {
 	}
 	defer pub.Close()
 
-	msg := buildPublishMessage(
-		[]string{"x-type=test", "x-action=deploy"},
-		[]byte(`{"key":"value"}`),
-	)
+	msg := &mqbridge.Message{
+		Headers: map[string]string{"x-type": "test", "x-action": "deploy"},
+		Body:    []byte(`{"key":"value"}`),
+	}
 	if err := pub.Publish(ctx, msg); err != nil {
 		t.Fatalf("Publish failed: %v", err)
 	}
@@ -79,14 +79,10 @@ func TestPublishCmdBodyFile(t *testing.T) {
 	}
 
 	cmd := &PublishCmd{
-		Header:   []string{"x-source=file"},
+		Header:   map[string]string{"x-source": "file"},
 		BodyFile: bodyFile,
 	}
 	body, err := cmd.readBody()
-	if err != nil {
-		t.Fatal(err)
-	}
-	headers, err := parseHeaders(cmd.Header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +93,10 @@ func TestPublishCmdBodyFile(t *testing.T) {
 	}
 	defer pub.Close()
 
-	msg := buildPublishMessage(nil, body)
-	msg.Headers = headers
+	msg := &mqbridge.Message{
+		Headers: cmd.Header,
+		Body:    body,
+	}
 	if err := pub.Publish(ctx, msg); err != nil {
 		t.Fatalf("Publish failed: %v", err)
 	}
@@ -113,52 +111,6 @@ func TestPublishCmdBodyFile(t *testing.T) {
 	}
 }
 
-func TestParseHeaders(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   []string
-		want    map[string]string
-		wantErr bool
-	}{
-		{
-			name:  "valid headers",
-			input: []string{"key1=value1", "key2=value2"},
-			want:  map[string]string{"key1": "value1", "key2": "value2"},
-		},
-		{
-			name:  "value with equals sign",
-			input: []string{"key=val=ue"},
-			want:  map[string]string{"key": "val=ue"},
-		},
-		{
-			name:  "empty value",
-			input: []string{"key="},
-			want:  map[string]string{"key": ""},
-		},
-		{
-			name:    "invalid format",
-			input:   []string{"no-equals"},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseHeaders(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseHeaders() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				for k, v := range tt.want {
-					if got[k] != v {
-						t.Errorf("parseHeaders()[%q] = %q, want %q", k, got[k], v)
-					}
-				}
-			}
-		})
-	}
-}
-
 func TestReadBodyMutuallyExclusive(t *testing.T) {
 	cmd := &PublishCmd{
 		Body:     "hello",
@@ -166,13 +118,5 @@ func TestReadBodyMutuallyExclusive(t *testing.T) {
 	}
 	if _, err := cmd.readBody(); err == nil {
 		t.Error("expected error for mutually exclusive --body and --body-file")
-	}
-}
-
-func buildPublishMessage(headers []string, body []byte) *mqbridge.Message {
-	h, _ := parseHeaders(headers)
-	return &mqbridge.Message{
-		Body:    body,
-		Headers: h,
 	}
 }

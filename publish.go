@@ -6,25 +6,19 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/fujiwara/mqbridge"
 )
 
 // PublishCmd is the "publish" subcommand.
 type PublishCmd struct {
-	Header   []string `short:"H" help:"Message header in key=value format (repeatable)"`
-	Body     string   `help:"Message body string"`
-	BodyFile string   `help:"Read message body from file" type:"existingfile"`
+	Header   map[string]string `short:"H" help:"Message header as key=value (repeatable)"`
+	Body     string            `help:"Message body string"`
+	BodyFile string            `help:"Read message body from file" type:"existingfile"`
 }
 
 func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	cfg, err := LoadConfig(ctx, globals.Config)
-	if err != nil {
-		return err
-	}
-
-	headers, err := parseHeaders(c.Header)
 	if err != nil {
 		return err
 	}
@@ -36,7 +30,7 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 
 	msg := &mqbridge.Message{
 		Body:    body,
-		Headers: headers,
+		Headers: c.Header,
 	}
 
 	pub, err := newRequestPublisher(cfg)
@@ -49,7 +43,7 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	slog.Info("message published", "queue", cfg.RequestQueue, "headers", headers, "body_size", len(body))
+	slog.Info("message published", "queue", cfg.RequestQueue, "headers", c.Header, "body_size", len(body))
 	return nil
 }
 
@@ -86,17 +80,4 @@ func newRequestPublisher(cfg *Config) (QueueClient, error) {
 			cfg.SMQRequest.Queue,
 		)
 	}
-}
-
-// parseHeaders parses key=value header strings into a map.
-func parseHeaders(raw []string) (map[string]string, error) {
-	headers := make(map[string]string, len(raw))
-	for _, h := range raw {
-		k, v, ok := strings.Cut(h, "=")
-		if !ok {
-			return nil, fmt.Errorf("invalid header format %q, expected key=value", h)
-		}
-		headers[k] = v
-	}
-	return headers, nil
 }
