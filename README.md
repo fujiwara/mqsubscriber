@@ -136,6 +136,18 @@ mqsubscriber validate -c config.jsonnet
 
 # Render configuration as JSON
 mqsubscriber render -c config.jsonnet
+
+# Publish a message to the request queue
+echo '{"action":"deploy"}' | mqsubscriber publish -c config.jsonnet \
+  -H x-type=deploy -H x-env=staging
+
+# Publish with body from flag
+mqsubscriber publish -c config.jsonnet \
+  --body '{"action":"test"}' -H rabbitmq.routing_key=upper
+
+# Publish with body from file
+mqsubscriber publish -c config.jsonnet \
+  --body-file payload.json -H rabbitmq.routing_key=deploy
 ```
 
 ### Options

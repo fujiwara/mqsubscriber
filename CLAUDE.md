@@ -26,6 +26,7 @@ go fmt ./...
 - `app.go` — App struct, main loop (poll-based for SimpleMQ, push-based for RabbitMQ), message dispatch (blocking/non-blocking), graceful shutdown
 - `handler.go` — Handler matching (exact header match), command execution, semaphore concurrency control
 - `config.go` — Config structs, Jsonnet loading via `jsonnet-armed`, validation, default constants, backend type detection
+- `publish.go` — `PublishCmd` subcommand, `newRequestPublisher` helper, header parsing
 - `cli.go` — CLI definition (`kong`), logger setup, `RunCLI()` entry point
 - `otel.go` — OpenTelemetry metrics + traces, W3C Trace Context propagation, `headerCarrier`
 - `trace_log.go` — `slog.Handler` wrapper that injects `trace_id`/`span_id` into log output
