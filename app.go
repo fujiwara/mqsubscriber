@@ -198,6 +198,16 @@ func (a *App) poll(ctx context.Context) (int, error) {
 
 	// Check response chain depth to prevent infinite loops
 	if a.exceedsResponseChain(qmsg.Message) {
+		dropCtx := extractTraceContext(msgCtx, qmsg.Message.Headers)
+		_, span := a.tracer.Start(dropCtx, "mqsubscriber.response_chain_dropped",
+			trace.WithAttributes(
+				attribute.String("message_id", qmsg.ID),
+				attribute.String("responded", qmsg.Message.Headers[HeaderResponseChain]),
+				attribute.Int("max_response_chain", a.config.MaxResponseChain),
+			),
+		)
+		span.SetStatus(codes.Error, "response chain limit reached")
+		span.End()
 		slog.Warn("dropping message: response chain limit reached",
 			"messageId", qmsg.ID,
 			"responded", qmsg.Message.Headers[HeaderResponseChain],
