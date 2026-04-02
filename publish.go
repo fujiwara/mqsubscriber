@@ -78,6 +78,7 @@ func newRequestPublisher(cfg *Config) (QueueClient, error) {
 			cfg.SMQRequest.APIURL,
 			cfg.SMQRequest.APIKey,
 			cfg.SMQRequest.Queue,
+			cfg.SimpleMQ.GetTimeout(),
 		)
 	}
 }

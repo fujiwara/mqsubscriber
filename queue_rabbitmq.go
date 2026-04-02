@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +22,12 @@ const (
 type RabbitMQReceiver struct {
 	config   *Config
 	conn     *amqp.Connection
+	netConn  net.Conn
 	ch       *amqp.Channel
 	msgs     <-chan amqp.Delivery
 	mu       sync.Mutex
 	prefetch int
+	timeout  time.Duration
 }
 
 // NewRabbitMQReceiver creates a new RabbitMQReceiver.
@@ -32,12 +35,16 @@ func NewRabbitMQReceiver(cfg *Config, prefetch int) *RabbitMQReceiver {
 	return &RabbitMQReceiver{
 		config:   cfg,
 		prefetch: prefetch,
+		timeout:  cfg.RabbitMQ.GetTimeout(),
 	}
 }
 
 // connect establishes connection, declares exchange/queue, and starts consuming.
 func (r *RabbitMQReceiver) connect() error {
-	conn, err := amqp.Dial(r.config.RabbitMQ.URL)
+	var netConn net.Conn
+	conn, err := amqp.DialConfig(r.config.RabbitMQ.URL, amqp.Config{
+		Dial: dialWithCapture(r.timeout, &netConn),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
@@ -102,6 +109,7 @@ func (r *RabbitMQReceiver) connect() error {
 	}
 
 	r.conn = conn
+	r.netConn = netConn
 	r.ch = ch
 	r.msgs = msgs
 	return nil
@@ -174,7 +182,9 @@ func (r *RabbitMQReceiver) Ack(_ context.Context, qmsg *QueueMessage) error {
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Ack: %T", qmsg.internal)
 	}
-	return delivery.Ack(false)
+	return r.withDeadline(func() error {
+		return delivery.Ack(false)
+	})
 }
 
 // Nack negatively acknowledges the message with requeue.
@@ -183,7 +193,22 @@ func (r *RabbitMQReceiver) Nack(_ context.Context, qmsg *QueueMessage) error {
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Nack: %T", qmsg.internal)
 	}
-	return delivery.Nack(false, true)
+	return r.withDeadline(func() error {
+		return delivery.Nack(false, true)
+	})
+}
+
+// withDeadline sets a write deadline on the underlying TCP connection before fn
+// and clears it after. This provides timeout for operations like Ack/Nack
+// that don't support context.
+func (r *RabbitMQReceiver) withDeadline(fn func() error) error {
+	if r.netConn != nil {
+		if err := r.netConn.SetWriteDeadline(time.Now().Add(r.timeout)); err != nil {
+			return fmt.Errorf("failed to set write deadline: %w", err)
+		}
+		defer r.netConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+	}
+	return fn()
 }
 
 // Close closes the RabbitMQ connection.
@@ -203,20 +228,26 @@ func (r *RabbitMQReceiver) closeConn() {
 		r.conn.Close()
 		r.conn = nil
 	}
+	r.netConn = nil
 	r.msgs = nil
 }
 
 // RabbitMQPublisher implements QueueClient for publishing to RabbitMQ.
 type RabbitMQPublisher struct {
-	config *Config
-	conn   *amqp.Connection
-	ch     *amqp.Channel
-	mu     sync.Mutex
+	config  *Config
+	conn    *amqp.Connection
+	netConn net.Conn
+	ch      *amqp.Channel
+	mu      sync.Mutex
+	timeout time.Duration
 }
 
 // NewRabbitMQPublisher creates a new RabbitMQPublisher.
 func NewRabbitMQPublisher(cfg *Config) *RabbitMQPublisher {
-	return &RabbitMQPublisher{config: cfg}
+	return &RabbitMQPublisher{
+		config:  cfg,
+		timeout: cfg.RabbitMQ.GetTimeout(),
+	}
 }
 
 func (p *RabbitMQPublisher) ensureConnected() error {
@@ -226,7 +257,10 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
-	conn, err := amqp.Dial(p.config.RabbitMQ.URL)
+	var netConn net.Conn
+	conn, err := amqp.DialConfig(p.config.RabbitMQ.URL, amqp.Config{
+		Dial: dialWithCapture(p.timeout, &netConn),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
@@ -244,6 +278,7 @@ func (p *RabbitMQPublisher) ensureConnected() error {
 		}
 	}
 	p.conn = conn
+	p.netConn = netConn
 	p.ch = ch
 	slog.Info("RabbitMQ publisher connected", "response_queue", p.config.RMQResponse.Queue)
 	return nil
@@ -309,7 +344,9 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		pub.MessageId = v
 	}
 
-	if err := p.ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub); err != nil {
+	if err := p.withDeadline(func() error {
+		return p.ch.PublishWithContext(ctx, exchange, routingKey, false, false, pub)
+	}); err != nil {
 		return fmt.Errorf("failed to publish to RabbitMQ exchange %q: %w", exchange, err)
 	}
 	return nil
@@ -323,6 +360,19 @@ func (p *RabbitMQPublisher) Ack(_ context.Context, _ *QueueMessage) error {
 // Nack is not supported on RabbitMQPublisher.
 func (p *RabbitMQPublisher) Nack(_ context.Context, _ *QueueMessage) error {
 	return fmt.Errorf("RabbitMQPublisher does not support Nack")
+}
+
+// withDeadline sets a write deadline on the underlying TCP connection before fn
+// and clears it after. This provides timeout for operations like Publish
+// that don't support context.
+func (p *RabbitMQPublisher) withDeadline(fn func() error) error {
+	if p.netConn != nil {
+		if err := p.netConn.SetWriteDeadline(time.Now().Add(p.timeout)); err != nil {
+			return fmt.Errorf("failed to set write deadline: %w", err)
+		}
+		defer p.netConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+	}
+	return fn()
 }
 
 // Close closes the RabbitMQ publisher connection.
@@ -342,10 +392,30 @@ func (p *RabbitMQPublisher) Close() error {
 		}
 		p.conn = nil
 	}
+	p.netConn = nil
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing RabbitMQ publisher: %v", errs)
 	}
 	return nil
+}
+
+// dialWithCapture returns a dial function that captures the net.Conn for later
+// deadline control. The captured conn can be used to set write deadlines on
+// operations that don't natively support context timeouts.
+func dialWithCapture(timeout time.Duration, dst *net.Conn) func(network, addr string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, timeout)
+		if err != nil {
+			return nil, err
+		}
+		// Set deadline for AMQP handshake (cleared by the library after handshake)
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		*dst = conn
+		return conn, nil
+	}
 }
 
 // messageFromDelivery constructs a mqbridge.Message from an AMQP delivery.

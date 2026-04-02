@@ -46,7 +46,8 @@ go fmt ./...
 - RabbitMQ messages are native AMQP deliveries; metadata mapped to `rabbitmq.*` headers by `messageFromDelivery`
 - Import `mqbridge.Message` directly — do not copy the struct
 - SimpleMQ default API URL comes from `simplemq.DefaultMessageAPIRootURL` (SDK), not hardcoded
-- Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`) are defined in `config.go`
+- Default constants (`DefaultPollingInterval`, `DefaultCommandTimeout`, `DefaultMaxConcurrency`, `DefaultQueueTimeout`) are defined in `config.go`
+- `SimpleMQConfig.Timeout` and `RabbitMQConfig.Timeout` control queue operation timeouts (default 30s). SimpleMQ uses `context.WithTimeout`; RabbitMQ uses dial timeout + `withTimeout` goroutine wrapper for publish/ack/nack (amqp library ignores context)
 - `HandlerConfig.MatchPattern` is `bool` (defaults to false) — when true, match values use AMQP topic-style patterns (`*` = one word, `#` = zero or more words). Patterns are compiled to regexps at handler creation time
 - `HandlerConfig.Response` is `bool` (defaults to false) — fire-and-forget by default; set `true` for RPC-style request/response
 - `HandlerConfig.ResponseIgnore` is `*ResponseIgnoreConfig` — when set with `exit_code`, suppresses response for that exit code (message is acked but no response published). Requires `response: true`

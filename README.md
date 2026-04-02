@@ -159,6 +159,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
 {
   simplemq: {
     api_url: "",  // optional, uses default SimpleMQ API URL
+    timeout: "30s",  // optional, default: 30s — timeout for queue operations
   },
   request: {
     queue: "request-queue",
@@ -182,6 +183,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
 {
   rabbitmq: {
     url: must_env("AMQP_URL"),  // e.g. "amqp://user:pass@host:5672/"
+    timeout: "30s",  // optional, default: 30s — timeout for dial/publish/ack/nack
   },
   request: {
     queue: "request-queue",
