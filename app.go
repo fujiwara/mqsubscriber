@@ -166,7 +166,11 @@ func (a *App) drainQueue(ctx context.Context) {
 	for {
 		n, err := a.poll(ctx)
 		if err != nil {
-			slog.Error("poll error", "error", err)
+			if ctx.Err() != nil {
+				slog.Debug("poll interrupted by context cancellation", "error", err)
+			} else {
+				slog.Error("poll error", "error", err)
+			}
 			return
 		}
 		if n == 0 {
