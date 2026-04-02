@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.5.0](https://github.com/fujiwara/mqsubscriber/compare/v0.4.1...v0.5.0) - 2026-04-02
+- Add elapsed time to command execution logs by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/15
+- Add publish subcommand by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/17
+- Add response chain guard to prevent infinite loops by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/18
+- Bump github.com/alecthomas/kong from 1.14.0 to 1.15.0 by @dependabot[bot] in https://github.com/fujiwara/mqsubscriber/pull/21
+- Bump actions/setup-go from 6.3.0 to 6.4.0 by @dependabot[bot] in https://github.com/fujiwara/mqsubscriber/pull/20
+
 ## [v0.4.1](https://github.com/fujiwara/mqsubscriber/compare/v0.4.0...v0.4.1) - 2026-03-26
 - Add log_header_fields option for handler logging by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/13
 
