@@ -10,10 +10,12 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fujiwara/sloghandler"
+	"github.com/hashicorp/go-envparse"
 )
 
 // CLI defines the command-line interface.
 type CLI struct {
+	EnvFile   string           `kong:"short='e',env='MQSUBSCRIBER_ENVFILE',help='Environment file to load'" `
 	Config    string           `kong:"required,short='c',env='MQSUBSCRIBER_CONFIG',help='Config file path (Jsonnet/JSON)'" `
 	LogFormat string           `kong:"default='text',enum='text,json',env='MQSUBSCRIBER_LOG_FORMAT',help='Log format (text or json)'" `
 	LogLevel  string           `kong:"default='info',enum='debug,info,warn,error',env='MQSUBSCRIBER_LOG_LEVEL',help='Log level (debug, info, warn, error)'" `
@@ -33,6 +35,11 @@ func RunCLI(ctx context.Context) error {
 		kong.Vars{"version": Version},
 		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
+	if cli.EnvFile != "" {
+		if err := loadEnvFile(cli.EnvFile); err != nil {
+			return fmt.Errorf("failed to load envfile %s: %w", cli.EnvFile, err)
+		}
+	}
 	setupLogger(cli.LogFormat, cli.LogLevel)
 	shutdownOTel, err := setupOTelProviders(ctx)
 	if err != nil {
@@ -40,6 +47,26 @@ func RunCLI(ctx context.Context) error {
 	}
 	defer shutdownOTel(ctx)
 	return kctx.Run(cli)
+}
+
+// loadEnvFile reads an environment file and sets variables in the process environment.
+func loadEnvFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	envs, err := envparse.Parse(f)
+	if err != nil {
+		return err
+	}
+	for k, v := range envs {
+		if err := os.Setenv(k, v); err != nil {
+			return err
+		}
+	}
+	slog.Info("loaded envfile", "path", path, "count", len(envs))
+	return nil
 }
 
 // RunCmd is the "run" subcommand.
