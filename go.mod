@@ -3,12 +3,13 @@ module github.com/fujiwara/mqsubscriber
 go 1.25.5
 
 require (
-	github.com/alecthomas/kong v1.14.0
+	github.com/alecthomas/kong v1.15.0
 	github.com/fujiwara/jsonnet-armed v0.1.1
 	github.com/fujiwara/mqbridge v0.3.1
 	github.com/fujiwara/sakura-secrets-cli v0.3.0
 	github.com/fujiwara/simplemq-cli v0.8.0
 	github.com/fujiwara/sloghandler v0.1.0
+	github.com/fujiwara/trabbits v0.0.17
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/sacloud/simplemq-api-go v0.5.0
 	go.opentelemetry.io/otel v1.42.0
@@ -31,7 +32,6 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/fujiwara/trabbits v0.0.17 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-faster/jx v1.2.0 // indirect
