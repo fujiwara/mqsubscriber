@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.5.1](https://github.com/fujiwara/mqsubscriber/compare/v0.5.0...v0.5.1) - 2026-04-02
+- Suppress context cancellation error log in drainQueue by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/23
+
 ## [v0.5.0](https://github.com/fujiwara/mqsubscriber/compare/v0.4.1...v0.5.0) - 2026-04-02
 - Add elapsed time to command execution logs by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/15
 - Add publish subcommand by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/17
