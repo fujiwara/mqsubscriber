@@ -144,6 +144,7 @@ mqsubscriber publish -c config.jsonnet --body 'hello' -H rabbitmq.routing_key=up
 ### Options
 
 - `-c`, `--config` (required): Config file path (Jsonnet/JSON). Env: `MQSUBSCRIBER_CONFIG`
+- `-e`, `--envfile`: Environment file to load. Variables defined in this file are exported to the process environment before config evaluation. Env: `MQSUBSCRIBER_ENVFILE`
 - `--log-format`: Log format (`text` or `json`, default: `text`). Env: `MQSUBSCRIBER_LOG_FORMAT`
 - `--log-level`: Log level (`debug`, `info`, `warn`, `error`, default: `info`). Env: `MQSUBSCRIBER_LOG_LEVEL`
 
