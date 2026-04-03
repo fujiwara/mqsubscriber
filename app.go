@@ -238,7 +238,7 @@ func (a *App) poll(ctx context.Context) (int, error) {
 				"messageId", qmsg.ID,
 				"headers", qmsg.Message.Headers,
 			)
-			a.metrics.messagesDropped.Add(msgCtx, 1)
+			a.metrics.messagesUnmatched.Add(msgCtx, 1)
 			a.nackMessage(msgCtx, qmsg)
 		}
 		return 1, nil

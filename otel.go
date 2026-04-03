@@ -101,6 +101,7 @@ type Metrics struct {
 	messagesProcessed metric.Int64Counter
 	messageErrors     metric.Int64Counter
 	messagesDropped   metric.Int64Counter
+	messagesUnmatched metric.Int64Counter
 	commandDuration   metric.Float64Histogram
 }
 
@@ -129,10 +130,17 @@ func newMetrics() (*Metrics, error) {
 	}
 
 	dropped, err := meter.Int64Counter("mqsubscriber.messages.dropped",
-		metric.WithDescription("Messages dropped due to no matching handler"),
+		metric.WithDescription("Messages dropped (acked) due to no matching handler (drop_unmatched: true)"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create messages.dropped counter: %w", err)
+	}
+
+	unmatched, err := meter.Int64Counter("mqsubscriber.messages.unmatched",
+		metric.WithDescription("Messages nacked due to no matching handler (drop_unmatched: false)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create messages.unmatched counter: %w", err)
 	}
 
 	duration, err := meter.Float64Histogram("mqsubscriber.command.duration",
@@ -148,6 +156,7 @@ func newMetrics() (*Metrics, error) {
 		messagesProcessed: processed,
 		messageErrors:     errors,
 		messagesDropped:   dropped,
+		messagesUnmatched: unmatched,
 		commandDuration:   duration,
 	}, nil
 }

@@ -437,7 +437,8 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.received` | Counter | Messages received from request queue | — |
 | `mqsubscriber.messages.processed` | Counter | Messages successfully processed | `handler` |
 | `mqsubscriber.messages.errors` | Counter | Message processing errors | `handler` |
-| `mqsubscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
+| `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
+| `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 
 ## Publish Subcommand
