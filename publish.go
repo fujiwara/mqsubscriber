@@ -15,6 +15,8 @@ type PublishCmd struct {
 	Header   map[string]string `short:"H" help:"Message header as key=value (repeatable)"`
 	Body     string            `help:"Message body string"`
 	BodyFile string            `help:"Read message body from file" type:"existingfile"`
+	Request  bool              `help:"Publish to the request queue (default)" xor:"queue"`
+	Response bool              `help:"Publish to the response queue" xor:"queue"`
 }
 
 func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
@@ -33,7 +35,14 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		Headers: c.Header,
 	}
 
-	pub, err := newRequestPublisher(cfg)
+	var pub QueueClient
+	queue := cfg.RequestQueue
+	if c.Response {
+		pub, err = newResponsePublisher(cfg)
+		queue = cfg.ResponseQueue
+	} else {
+		pub, err = newRequestPublisher(cfg)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create publisher: %w", err)
 	}
@@ -43,7 +52,7 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	slog.Info("message published", "queue", cfg.RequestQueue, "headers", c.Header, "body_size", len(body))
+	slog.Info("message published", "queue", queue, "headers", c.Header, "body_size", len(body))
 	return nil
 }
 
@@ -78,6 +87,27 @@ func newRequestPublisher(cfg *Config) (QueueClient, error) {
 			cfg.SMQRequest.APIURL,
 			cfg.SMQRequest.APIKey,
 			cfg.SMQRequest.Queue,
+			cfg.SimpleMQ.GetTimeout(),
+		)
+	}
+}
+
+// newResponsePublisher creates a QueueClient publisher targeting the response queue.
+func newResponsePublisher(cfg *Config) (QueueClient, error) {
+	switch cfg.BackendType() {
+	case BackendRabbitMQ:
+		if cfg.RMQResponse == nil {
+			return nil, fmt.Errorf("response queue is not configured")
+		}
+		return NewRabbitMQPublisher(cfg), nil
+	default:
+		if cfg.SMQResponse == nil {
+			return nil, fmt.Errorf("response queue is not configured")
+		}
+		return NewSimpleMQPublisher(
+			cfg.SMQResponse.APIURL,
+			cfg.SMQResponse.APIKey,
+			cfg.SMQResponse.Queue,
 			cfg.SimpleMQ.GetTimeout(),
 		)
 	}
