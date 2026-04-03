@@ -172,6 +172,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
     queue: "response-queue",
     api_key: must_env("RESPONSE_API_KEY"),
   },
+  drop_unmatched: false,  // optional, default: false — when true, ack (delete) messages that match no handler
   handlers: [
     // ... (see Handler Configuration below)
   ],
@@ -200,6 +201,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
     routing_key: "",       // optional, default: response queue name
     reply_to: false,       // optional, default: false (see below)
   },
+  drop_unmatched: false,  // optional, default: false — when true, ack (delete) messages that match no handler
   handlers: [
     // ... (see Handler Configuration below)
   ],
@@ -268,7 +270,7 @@ INFO processing notification  handler=notify messageId=abc123 header.rabbitmq.ro
   - `#` matches **zero or more** dot-delimited words (e.g., `order.#` matches `order`, `order.created`, and `order.created.v2`)
   - Values without `*` or `#` still match exactly, so you can mix patterns and literal values
 - Handlers are evaluated in order; the **first match wins**
-- Messages that match no handler are logged and dropped
+- Messages that match no handler are nacked (not deleted) by default. Set `drop_unmatched: true` to ack (delete) them instead
 
 Example with pattern matching:
 
@@ -435,7 +437,8 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.received` | Counter | Messages received from request queue | — |
 | `mqsubscriber.messages.processed` | Counter | Messages successfully processed | `handler` |
 | `mqsubscriber.messages.errors` | Counter | Message processing errors | `handler` |
-| `mqsubscriber.messages.dropped` | Counter | Messages dropped (no matching handler) | — |
+| `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
+| `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 
 ## Publish Subcommand

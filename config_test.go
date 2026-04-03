@@ -331,6 +331,37 @@ func TestRoutingKeyUnmarshal(t *testing.T) {
 	}
 }
 
+func TestDropUnmatchedConfig(t *testing.T) {
+	// Default: drop_unmatched is false
+	cfg := mustParseConfig(t, `{
+		"request": {"queue": "q", "api_key": "k"},
+		"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+	}`)
+	if cfg.DropUnmatched {
+		t.Error("expected DropUnmatched to default to false")
+	}
+
+	// Explicit true
+	cfg = mustParseConfig(t, `{
+		"request": {"queue": "q", "api_key": "k"},
+		"drop_unmatched": true,
+		"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+	}`)
+	if !cfg.DropUnmatched {
+		t.Error("expected DropUnmatched to be true")
+	}
+
+	// Explicit false
+	cfg = mustParseConfig(t, `{
+		"request": {"queue": "q", "api_key": "k"},
+		"drop_unmatched": false,
+		"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"]}]
+	}`)
+	if cfg.DropUnmatched {
+		t.Error("expected DropUnmatched to be false")
+	}
+}
+
 func TestGetMaxConcurrency(t *testing.T) {
 	h := &HandlerConfig{}
 	if c := h.GetMaxConcurrency(); c != 1 {

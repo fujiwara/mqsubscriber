@@ -143,6 +143,7 @@ type Config struct {
 
 	Handlers         []HandlerConfig
 	MaxResponseChain int
+	DropUnmatched    bool
 }
 
 // ResponseIgnoreConfig defines conditions under which a response is suppressed.
@@ -195,6 +196,7 @@ type rawConfig struct {
 	Response         json.RawMessage `json:"response"`
 	Handlers         []HandlerConfig `json:"handlers"`
 	MaxResponseChain *int            `json:"max_response_chain"`
+	DropUnmatched    *bool           `json:"drop_unmatched"`
 }
 
 // LoadConfig loads and parses a configuration file (Jsonnet or JSON).
@@ -245,11 +247,17 @@ func parseConfig(data []byte) (*Config, error) {
 		maxResponseChain = *raw.MaxResponseChain
 	}
 
+	var dropUnmatched bool
+	if raw.DropUnmatched != nil {
+		dropUnmatched = *raw.DropUnmatched
+	}
+
 	cfg := &Config{
 		SimpleMQ:         raw.SimpleMQ,
 		RabbitMQ:         raw.RabbitMQ,
 		Handlers:         raw.Handlers,
 		MaxResponseChain: maxResponseChain,
+		DropUnmatched:    dropUnmatched,
 	}
 
 	// Parse backend-specific request/response configs

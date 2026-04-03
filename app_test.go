@@ -237,6 +237,7 @@ func TestNoMatchingHandler(t *testing.T) {
 			Blocking: true,
 		},
 	})
+	cfg.DropUnmatched = true
 
 	app, err := New(cfg)
 	if err != nil {
@@ -276,6 +277,68 @@ func TestNoMatchingHandler(t *testing.T) {
 	recvOK, ok := res.(*message.ReceiveMessageOK)
 	if ok && len(recvOK.Messages) > 0 {
 		t.Error("expected request queue to be empty after drop")
+	}
+}
+
+func TestNoMatchingHandlerNack(t *testing.T) {
+	// Use a short visibility timeout so nacked messages become visible again quickly
+	srv := localserver.NewTestServer(localserver.Config{
+		APIKey:            testAPIKey,
+		VisibilityTimeout: 500 * time.Millisecond,
+	})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-nomatch-nack")
+	resQueue := uniqueName("res-nomatch-nack")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "echo",
+			Match:    map[string]string{"rabbitmq.routing_key": "echo"},
+			Command:  []string{"cat"},
+			Blocking: true,
+		},
+	})
+	// DropUnmatched defaults to false — unmatched messages should be nacked (not deleted)
+	if cfg.DropUnmatched {
+		t.Fatal("expected DropUnmatched to default to false")
+	}
+
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	// Send message that doesn't match any handler
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("unmatched-nack"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key": "unknown",
+		},
+	})
+
+	go app.Run(ctx)
+	// Wait for the message to be received and nacked
+	time.Sleep(1 * time.Second)
+	cancel()
+	// Wait for visibility timeout to expire after the last receive
+	time.Sleep(600 * time.Millisecond)
+
+	// After visibility timeout, the nacked message should be available again
+	res, err := newTestSMQClient(t, srv.TestURL()).ReceiveMessage(t.Context(), message.ReceiveMessageParams{
+		QueueName: message.QueueName(reqQueue),
+	})
+	if err != nil {
+		t.Fatalf("failed to check request queue: %v", err)
+	}
+	recvOK, ok := res.(*message.ReceiveMessageOK)
+	if !ok || len(recvOK.Messages) == 0 {
+		t.Error("expected unmatched message to remain in queue (nacked, not dropped)")
 	}
 }
 
