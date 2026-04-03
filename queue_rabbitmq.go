@@ -187,14 +187,15 @@ func (r *RabbitMQReceiver) Ack(_ context.Context, qmsg *QueueMessage) error {
 	})
 }
 
-// Nack negatively acknowledges the message with requeue.
+// Nack negatively acknowledges the message without requeue.
+// The message is routed to the dead-letter exchange if configured.
 func (r *RabbitMQReceiver) Nack(_ context.Context, qmsg *QueueMessage) error {
 	delivery, ok := qmsg.internal.(*amqp.Delivery)
 	if !ok {
 		return fmt.Errorf("invalid internal type for RabbitMQ Nack: %T", qmsg.internal)
 	}
 	return r.withDeadline(func() error {
-		return delivery.Nack(false, true)
+		return delivery.Nack(false, false)
 	})
 }
 
