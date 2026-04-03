@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.6.0](https://github.com/fujiwara/mqsubscriber/compare/v0.5.1...v0.6.0) - 2026-04-03
+- Add --request/--response flag to publish command by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/25
+- Add drop_unmatched config for unmatched messages by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/27
+
 ## [v0.5.1](https://github.com/fujiwara/mqsubscriber/compare/v0.5.0...v0.5.1) - 2026-04-02
 - Suppress context cancellation error log in drainQueue by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/23
 
