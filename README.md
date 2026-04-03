@@ -270,7 +270,7 @@ INFO processing notification  handler=notify messageId=abc123 header.rabbitmq.ro
   - `#` matches **zero or more** dot-delimited words (e.g., `order.#` matches `order`, `order.created`, and `order.created.v2`)
   - Values without `*` or `#` still match exactly, so you can mix patterns and literal values
 - Handlers are evaluated in order; the **first match wins**
-- Messages that match no handler are nacked (not deleted) by default. Set `drop_unmatched: true` to ack (delete) them instead
+- Messages that match no handler are nacked by default (SimpleMQ: redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured). Set `drop_unmatched: true` to ack (delete) them instead
 
 Example with pattern matching:
 
@@ -304,7 +304,7 @@ Example with pattern matching:
   3. **Message headers** — passed as `MQ_HEADER_*` variables (dots and hyphens are converted to underscores, uppercased). e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
-- If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted for redelivery, RabbitMQ: nack with requeue)
+- If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted, redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured)
 
 ### Response Publishing
 

@@ -25,8 +25,9 @@ type QueueClient interface {
 	// Ack acknowledges a message (SimpleMQ: DELETE, RabbitMQ: Ack).
 	Ack(ctx context.Context, qmsg *QueueMessage) error
 
-	// Nack negatively acknowledges a message for redelivery
-	// (SimpleMQ: no-op, RabbitMQ: Nack with requeue).
+	// Nack negatively acknowledges a message.
+	// SimpleMQ: no-op (visibility timeout handles redelivery).
+	// RabbitMQ: Nack without requeue (message routed to dead-letter exchange if configured).
 	Nack(ctx context.Context, qmsg *QueueMessage) error
 
 	// Close releases resources held by the client.
