@@ -493,9 +493,11 @@ mqsubscriber publish -c config.jsonnet --body 'hello' \
 mqsubscriber publish -c config.jsonnet --body 'hello' \
   -H rabbitmq.exchange=my-exchange -H rabbitmq.routing_key=deploy
 
-# Set custom AMQP headers (mapped via rabbitmq.header.* prefix)
+# Set custom headers (works for both SimpleMQ and RabbitMQ)
+# For RabbitMQ, non-rabbitmq.* headers are sent as AMQP headers
+# and received as rabbitmq.header.* (e.g. x-priority → rabbitmq.header.x-priority)
 mqsubscriber publish -c config.jsonnet --body 'hello' \
-  -H rabbitmq.routing_key=upper -H rabbitmq.header.x-priority=high
+  -H rabbitmq.routing_key=upper -H x-priority=high
 
 # Pipe body from stdin
 echo '{"action":"deploy"}' | mqsubscriber publish -c config.jsonnet \
