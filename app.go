@@ -109,6 +109,7 @@ func (a *App) Run(ctx context.Context) error {
 		"backend", a.config.BackendType(),
 		"request_queue", a.config.RequestQueue,
 		"handlers", len(a.handlers),
+		"drop_unmatched", a.config.DropUnmatched,
 	}
 	if a.config.ResponseQueue != "" {
 		logAttrs = append(logAttrs, "response_queue", a.config.ResponseQueue)
@@ -225,12 +226,21 @@ func (a *App) poll(ctx context.Context) (int, error) {
 
 	handler := a.findHandler(qmsg.Message)
 	if handler == nil {
-		slog.Warn("no matching handler, dropping message",
-			"messageId", qmsg.ID,
-			"headers", qmsg.Message.Headers,
-		)
-		a.metrics.messagesDropped.Add(msgCtx, 1)
-		a.ackMessage(msgCtx, qmsg)
+		if a.config.DropUnmatched {
+			slog.Warn("no matching handler, dropping message",
+				"messageId", qmsg.ID,
+				"headers", qmsg.Message.Headers,
+			)
+			a.metrics.messagesDropped.Add(msgCtx, 1)
+			a.ackMessage(msgCtx, qmsg)
+		} else {
+			slog.Warn("no matching handler, nacking message",
+				"messageId", qmsg.ID,
+				"headers", qmsg.Message.Headers,
+			)
+			a.metrics.messagesDropped.Add(msgCtx, 1)
+			a.nackMessage(msgCtx, qmsg)
+		}
 		return 1, nil
 	}
 
