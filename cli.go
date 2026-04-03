@@ -22,7 +22,7 @@ type CLI struct {
 	Run       RunCmd           `cmd:"" default:"1" help:"Run the subscriber"`
 	Validate  ValidateCmd      `cmd:"" help:"Validate config"`
 	Render    RenderCmd        `cmd:"" help:"Render config as JSON to stdout"`
-	Publish   PublishCmd       `cmd:"" help:"Publish a message to the request queue"`
+	Publish   PublishCmd       `cmd:"" help:"Publish a message to the request or response queue"`
 	Version   kong.VersionFlag `help:"Show version"`
 }
 

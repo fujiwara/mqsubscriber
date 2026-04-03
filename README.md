@@ -440,7 +440,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 
 ## Publish Subcommand
 
-The `publish` subcommand sends a message to the request queue. This is useful for debugging handlers, testing configurations, and self-invoking commands.
+The `publish` subcommand sends a message to the request or response queue. This is useful for debugging handlers, testing configurations, and self-invoking commands.
 
 ```bash
 mqsubscriber publish -c config.jsonnet [flags]
@@ -453,15 +453,15 @@ mqsubscriber publish -c config.jsonnet [flags]
 | `-H key=value` | Message header (repeatable) |
 | `--body <string>` | Message body as a string |
 | `--body-file <path>` | Read message body from a file |
+| `--request` | Publish to the request queue (default) |
+| `--response` | Publish to the response queue |
 | (stdin) | If neither `--body` nor `--body-file` is given, body is read from stdin |
 
-`--body` and `--body-file` are mutually exclusive.
+`--body` and `--body-file` are mutually exclusive. `--request` and `--response` are mutually exclusive.
 
 ### Destination Routing
 
-**SimpleMQ backend:**
-
-Messages are always sent to `request.queue` in the config.
+By default, messages are sent to the request queue. Use `--response` to send to the response queue instead.
 
 **RabbitMQ backend:**
 
@@ -476,8 +476,11 @@ By default, messages are sent to `request.queue` via the default exchange. You c
 ### Usage Examples
 
 ```bash
-# Send to the request queue (default destination)
+# Send to the request queue (default)
 mqsubscriber publish -c config.jsonnet --body 'hello'
+
+# Send to the response queue
+mqsubscriber publish -c config.jsonnet --response --body 'hello'
 
 # Send with routing key (matched by handler's match condition)
 mqsubscriber publish -c config.jsonnet --body 'hello' \
