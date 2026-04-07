@@ -318,11 +318,16 @@ func (p *RabbitMQPublisher) Publish(ctx context.Context, msg *mqbridge.Message) 
 		return fmt.Errorf("cannot determine response destination: no routing_key in message headers and no response.queue configured")
 	}
 
-	// Build AMQP headers from rabbitmq.header.* prefix
+	// Build AMQP headers from message headers.
+	// - rabbitmq.header.* prefix: strip prefix and use as AMQP header key
+	// - non-rabbitmq.* headers: pass through as AMQP headers directly
+	//   (enables backend-agnostic publish with custom headers)
 	headers := make(amqp.Table)
 	for k, v := range msg.Headers {
 		if strings.HasPrefix(k, mqbridge.HeaderRabbitMQHeaderPrefix) {
 			headers[k[len(mqbridge.HeaderRabbitMQHeaderPrefix):]] = v
+		} else if !strings.HasPrefix(k, "rabbitmq.") {
+			headers[k] = v
 		}
 	}
 
