@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.6.2](https://github.com/fujiwara/mqsubscriber/compare/v0.6.1...v0.6.2) - 2026-04-07
+- Do not mark execute span as error for response_ignore exit codes by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/32
+- Include non-prefixed headers as AMQP headers in RabbitMQ publisher by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/31
+
 ## [v0.6.1](https://github.com/fujiwara/mqsubscriber/compare/v0.6.0...v0.6.1) - 2026-04-03
 - RabbitMQ: nack without requeue to prevent redelivery loops by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/28
 
