@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 
 	"go.opentelemetry.io/otel"
@@ -81,9 +82,7 @@ func injectTraceContext(ctx context.Context, headers map[string]string) {
 	carrier := make(headerCarrier)
 	prop := propagation.TraceContext{}
 	prop.Inject(ctx, carrier)
-	for k, v := range carrier {
-		headers[k] = v
-	}
+	maps.Copy(headers, carrier)
 }
 
 // headerAttributes converts message headers to span attributes with the given prefix.
