@@ -16,6 +16,7 @@ import (
 	"github.com/fujiwara/trabbits/pattern"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -151,6 +152,10 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 			result.ExitCode = cmd.ProcessState.ExitCode()
 		}
 		span.SetAttributes(attribute.Int("exit_code", result.ExitCode))
+		if !h.shouldIgnoreResponse(result) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "command failed")
+		}
 	}
 	return result
 }
