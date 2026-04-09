@@ -128,7 +128,7 @@ func TestRabbitMQBlockingHandler(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRabbitMQNonBlockingHandler(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestRabbitMQCommandFailure(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
