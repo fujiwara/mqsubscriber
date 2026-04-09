@@ -34,7 +34,7 @@ type App struct {
 }
 
 // New creates a new App from a config.
-func New(cfg *Config) (*App, error) {
+func New(ctx context.Context, cfg *Config) (*App, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -58,6 +58,8 @@ func New(cfg *Config) (*App, error) {
 		}
 		handlers = append(handlers, h)
 	}
+
+	m.initCounters(ctx, handlers)
 
 	return &App{
 		config:   cfg,

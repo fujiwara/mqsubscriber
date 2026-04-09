@@ -127,7 +127,7 @@ func TestBlockingHandler(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestNonBlockingHandler(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestNoMatchingHandler(t *testing.T) {
 	})
 	cfg.DropUnmatched = true
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestNoMatchingHandlerNack(t *testing.T) {
 		t.Fatal("expected DropUnmatched to default to false")
 	}
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestMultipleHandlers(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestCommandFailureResponseTrue(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestCommandFailureResponseFalse(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestResponseIgnoreExitCode(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestResponseIgnoreExitCodeNonMatch(t *testing.T) {
 		},
 	})
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestResponseChainDrop(t *testing.T) {
 	})
 	// Default max_response_chain=0: messages with responded>=1 should be dropped
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestResponseChainAllow(t *testing.T) {
 	})
 	cfg.MaxResponseChain = 1 // Allow one chain hop
 
-	app, err := New(cfg)
+	app, err := New(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
