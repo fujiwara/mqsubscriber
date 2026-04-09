@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.7.0](https://github.com/fujiwara/mqsubscriber/compare/v0.6.5...v0.7.0) - 2026-04-09
+- Initialize metric counters to zero at startup by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/42
+
 ## [v0.6.5](https://github.com/fujiwara/mqsubscriber/compare/v0.6.4...v0.6.5) - 2026-04-09
 - Fix OTel shutdown error on signal by using WithoutCancel by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/40
 
