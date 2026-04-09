@@ -59,6 +59,8 @@ func New(cfg *Config) (*App, error) {
 		handlers = append(handlers, h)
 	}
 
+	m.initCounters(context.Background(), handlers)
+
 	return &App{
 		config:   cfg,
 		handlers: handlers,

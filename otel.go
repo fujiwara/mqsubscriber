@@ -174,6 +174,19 @@ func newMetrics() (*Metrics, error) {
 	}, nil
 }
 
+// initCounters initializes all counters to zero so they appear in metrics output
+// even before any events occur. Handler-specific counters are initialized per handler.
+func (m *Metrics) initCounters(ctx context.Context, handlers []*Handler) {
+	m.messagesReceived.Add(ctx, 0)
+	m.messagesDropped.Add(ctx, 0)
+	m.messagesUnmatched.Add(ctx, 0)
+	for _, h := range handlers {
+		opts := metric.WithAttributeSet(h.attrs)
+		m.messagesProcessed.Add(ctx, 0, opts)
+		m.messageErrors.Add(ctx, 0, opts)
+	}
+}
+
 func newTracer() trace.Tracer {
 	return otel.Tracer(tracerName)
 }
