@@ -1,3 +1,3 @@
 package subscriber
 
-var Version = "v0.6.5"
+var Version = "v0.7.0"
