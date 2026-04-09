@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -124,7 +125,7 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	cmd.Stdin = bytes.NewReader(msg.Body)
 
 	// Set environment variables: inherit parent process env, overlay handler env, then message headers
-	cmd.Env = buildEnv(h.env, msg.Headers)
+	cmd.Env = buildEnv(ctx, h.env, msg.Headers)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -260,7 +261,8 @@ func tailBytes(b []byte, n int) []byte {
 // buildEnv constructs the environment variables for a command.
 // It starts with the parent process environment, overlays handler-specific env,
 // then adds message headers as MQ_HEADER_* variables.
-func buildEnv(handlerEnv map[string]string, headers map[string]string) []string {
+// It also sets TRACEPARENT and TRACESTATE from the span context for W3C trace propagation.
+func buildEnv(ctx context.Context, handlerEnv map[string]string, headers map[string]string) []string {
 	env := os.Environ()
 	for k, v := range handlerEnv {
 		env = append(env, k+"="+v)
@@ -269,6 +271,15 @@ func buildEnv(handlerEnv map[string]string, headers map[string]string) []string 
 	for k, v := range headers {
 		envKey := "MQ_HEADER_" + strings.ToUpper(replacer.Replace(k))
 		env = append(env, envKey+"="+v)
+	}
+	// Inject W3C Trace Context as environment variables
+	carrier := make(headerCarrier)
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	if v := carrier[headerTraceparent]; v != "" {
+		env = append(env, "TRACEPARENT="+v)
+	}
+	if v := carrier[headerTracestate]; v != "" {
+		env = append(env, "TRACESTATE="+v)
 	}
 	return env
 }

@@ -39,6 +39,9 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		msg.Headers = make(map[string]string)
 	}
 
+	// Restore parent trace context from TRACEPARENT environment variable (W3C standard)
+	ctx = extractTraceContextFromEnv(ctx)
+
 	tracer := newTracer()
 	ctx, span := tracer.Start(ctx, "publish")
 	defer span.End()

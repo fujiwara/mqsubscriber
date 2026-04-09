@@ -74,6 +74,20 @@ func extractTraceContext(ctx context.Context, headers map[string]string) context
 	return prop.Extract(ctx, carrier)
 }
 
+// extractTraceContextFromEnv extracts W3C trace context from TRACEPARENT/TRACESTATE environment variables.
+func extractTraceContextFromEnv(ctx context.Context) context.Context {
+	traceparent := os.Getenv("TRACEPARENT")
+	if traceparent == "" {
+		return ctx
+	}
+	carrier := make(headerCarrier)
+	carrier[headerTraceparent] = traceparent
+	if tracestate := os.Getenv("TRACESTATE"); tracestate != "" {
+		carrier[headerTracestate] = tracestate
+	}
+	return propagation.TraceContext{}.Extract(ctx, carrier)
+}
+
 // injectTraceContext injects trace context into message headers.
 func injectTraceContext(ctx context.Context, headers map[string]string) {
 	if headers == nil {
