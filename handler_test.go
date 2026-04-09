@@ -7,6 +7,9 @@ import (
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/fujiwara/trabbits/pattern"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func newTestMetrics(t *testing.T) *Metrics {
@@ -719,7 +722,7 @@ func TestBuildEnv(t *testing.T) {
 		"rabbitmq.routing_key":     "test.key",
 		"rabbitmq.header.x-custom": "value",
 	}
-	env := buildEnv(handlerEnv, headers)
+	env := buildEnv(t.Context(), handlerEnv, headers)
 	envMap := make(map[string]string)
 	for _, e := range env {
 		for i, c := range e {
@@ -747,5 +750,58 @@ func TestBuildEnv(t *testing.T) {
 		if envMap[k] != v {
 			t.Errorf("env %s: expected %q, got %q", k, v, envMap[k])
 		}
+	}
+}
+
+func TestBuildEnvTraceparent(t *testing.T) {
+	// Set up a real tracer provider so spans have valid trace IDs
+	tp := sdktrace.NewTracerProvider()
+	defer tp.Shutdown(t.Context())
+	otel.SetTracerProvider(tp)
+
+	ctx, span := otel.Tracer(tracerName).Start(t.Context(), "test-span")
+	defer span.End()
+
+	env := buildEnv(ctx, nil, nil)
+	envMap := make(map[string]string)
+	for _, e := range env {
+		for i, c := range e {
+			if c == '=' {
+				envMap[e[:i]] = e[i+1:]
+				break
+			}
+		}
+	}
+
+	// TRACEPARENT should be set from the active span
+	tp2 := envMap["TRACEPARENT"]
+	if tp2 == "" {
+		t.Fatal("expected TRACEPARENT to be set")
+	}
+	// Verify it contains the correct trace ID
+	sc := span.SpanContext()
+	if !sc.TraceID().IsValid() {
+		t.Fatal("expected valid trace ID")
+	}
+	traceID := sc.TraceID().String()
+	if got := tp2; len(got) < 36 || got[3:35] != traceID {
+		t.Errorf("TRACEPARENT trace ID mismatch: expected %s in %s", traceID, got)
+	}
+}
+
+func TestExtractTraceContextFromEnv(t *testing.T) {
+	traceparent := "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	t.Setenv("TRACEPARENT", traceparent)
+
+	ctx := extractTraceContextFromEnv(t.Context())
+	sc := trace.SpanContextFromContext(ctx)
+	if !sc.IsValid() {
+		t.Fatal("expected valid span context from TRACEPARENT env")
+	}
+	if got := sc.TraceID().String(); got != "0af7651916cd43dd8448eb211c80319c" {
+		t.Errorf("trace ID: expected %s, got %s", "0af7651916cd43dd8448eb211c80319c", got)
+	}
+	if got := sc.SpanID().String(); got != "b7ad6b7169203331" {
+		t.Errorf("span ID: expected %s, got %s", "b7ad6b7169203331", got)
 	}
 }

@@ -419,6 +419,8 @@ Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/t
 **Trace context propagation:**
 - On receive: extracts `traceparent`/`tracestate` from message headers (falls back to `rabbitmq.header.traceparent` for mqbridge compatibility)
 - On response: injects `traceparent`/`tracestate` into response message headers
+- On command execution: sets `TRACEPARENT`/`TRACESTATE` environment variables for child processes (W3C standard)
+- On publish subcommand: reads `TRACEPARENT`/`TRACESTATE` environment variables to continue the trace from the parent process
 
 **Spans:**
 
@@ -427,6 +429,7 @@ Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/t
 | `mqsubscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking`, `request.header.*` |
 | `mqsubscriber.execute` | Command execution | `handler`, `command` |
 | `mqsubscriber.publish` | Response publish | `queue`, `response.header.*` |
+| `publish` | Publish subcommand | `messaging.destination.name`, `messaging.message.body.size` |
 
 Errors (command failure, publish failure) are recorded on spans with `Error` status.
 
