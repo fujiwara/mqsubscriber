@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.6.3](https://github.com/fujiwara/mqsubscriber/compare/v0.6.2...v0.6.3) - 2026-04-09
+- Add publish span and lower OTel setup log to Debug by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/35
+
 ## [v0.6.2](https://github.com/fujiwara/mqsubscriber/compare/v0.6.1...v0.6.2) - 2026-04-07
 - Do not mark execute span as error for response_ignore exit codes by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/32
 - Include non-prefixed headers as AMQP headers in RabbitMQ publisher by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/31
