@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/fujiwara/mqbridge"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // PublishCmd is the "publish" subcommand.
@@ -34,6 +35,14 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		Body:    body,
 		Headers: c.Header,
 	}
+	if msg.Headers == nil {
+		msg.Headers = make(map[string]string)
+	}
+
+	tracer := newTracer()
+	ctx, span := tracer.Start(ctx, "publish")
+	defer span.End()
+	injectTraceContext(ctx, msg.Headers)
 
 	var pub QueueClient
 	queue := cfg.RequestQueue
@@ -49,9 +58,14 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	defer pub.Close()
 
 	if err := pub.Publish(ctx, msg); err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
+	span.SetAttributes(
+		attribute.String("messaging.destination.name", queue),
+		attribute.Int("messaging.message.body.size", len(body)),
+	)
 	slog.Info("message published", "queue", queue, "headers", c.Header, "body_size", len(body))
 	return nil
 }
