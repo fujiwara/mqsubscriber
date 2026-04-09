@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.6.5](https://github.com/fujiwara/mqsubscriber/compare/v0.6.4...v0.6.5) - 2026-04-09
+- Fix OTel shutdown error on signal by using WithoutCancel by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/40
+
 ## [v0.6.4](https://github.com/fujiwara/mqsubscriber/compare/v0.6.3...v0.6.4) - 2026-04-09
 - Propagate W3C trace context via TRACEPARENT env var by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/37
 
