@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/fujiwara/mqbridge"
@@ -124,10 +123,7 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	start := time.Now()
 
 	cmd := exec.CommandContext(cmdCtx, h.command[0], h.command[1:]...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-	}
+	setupProcessGroup(cmd)
 	cmd.WaitDelay = 30 * time.Second
 	cmd.Stdin = bytes.NewReader(msg.Body)
 
