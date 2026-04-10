@@ -428,7 +428,7 @@ Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/t
 | Span | Description | Key Attributes |
 |------|-------------|----------------|
 | `mqsubscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking`, `request.header.*` |
-| `mqsubscriber.execute` | Command execution | `handler`, `command` |
+| `mqsubscriber.execute` | Command execution | `handler`, `command`, `command.timed_out`, `exit_code` |
 | `mqsubscriber.publish` | Response publish | `queue`, `response.header.*` |
 | `publish` | Publish subcommand | `messaging.destination.name`, `messaging.message.body.size` |
 
@@ -444,6 +444,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
 | `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
+| `mqsubscriber.command.timeouts` | Counter | Command execution timeouts | `handler` |
 
 ## Publish Subcommand
 

@@ -59,6 +59,7 @@ go fmt ./...
 - `QueueClient.Nack` always nacks without requeue — SimpleMQ: no-op (visibility timeout handles redelivery); RabbitMQ: nack with requeue=false (message routed to dead-letter exchange if configured)
 - Response queue is optional — required only when any handler has `response: true`
 - Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
+- Command timeout sends SIGTERM first, then SIGKILL after 30s WaitDelay. `CommandResult.TimedOut` tracks timeout state. Timeout is recorded as `command.timed_out` span attribute and `mqsubscriber.command.timeouts` metric counter
 - Commands inherit the parent process environment, overlaid with handler `env`, then `MQ_HEADER_*` from message headers
 - Environment variable prefix for headers is `MQ_HEADER_` (not `SIMPLEMQ_HEADER_`)
 

@@ -116,6 +116,7 @@ type Metrics struct {
 	messagesDropped   metric.Int64Counter
 	messagesUnmatched metric.Int64Counter
 	commandDuration   metric.Float64Histogram
+	commandTimeouts   metric.Int64Counter
 }
 
 func newMetrics() (*Metrics, error) {
@@ -164,6 +165,13 @@ func newMetrics() (*Metrics, error) {
 		return nil, fmt.Errorf("failed to create command.duration histogram: %w", err)
 	}
 
+	timeouts, err := meter.Int64Counter("mqsubscriber.command.timeouts",
+		metric.WithDescription("Command execution timeouts"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create command.timeouts counter: %w", err)
+	}
+
 	return &Metrics{
 		messagesReceived:  received,
 		messagesProcessed: processed,
@@ -171,6 +179,7 @@ func newMetrics() (*Metrics, error) {
 		messagesDropped:   dropped,
 		messagesUnmatched: unmatched,
 		commandDuration:   duration,
+		commandTimeouts:   timeouts,
 	}, nil
 }
 
@@ -184,6 +193,7 @@ func (m *Metrics) initCounters(ctx context.Context, handlers []*Handler) {
 		opts := metric.WithAttributeSet(h.attrs)
 		m.messagesProcessed.Add(ctx, 0, opts)
 		m.messageErrors.Add(ctx, 0, opts)
+		m.commandTimeouts.Add(ctx, 0, opts)
 	}
 }
 
