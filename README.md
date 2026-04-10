@@ -304,6 +304,7 @@ Example with pattern matching:
   3. **Message headers** — passed as `MQ_HEADER_*` variables (dots and hyphens are converted to underscores, uppercased). e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
+- If the command times out, **SIGTERM** is sent to the entire process group (including child processes) to allow graceful shutdown. If the process does not exit within 30 seconds, it is forcibly killed (SIGKILL)
 - If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted, redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured)
 
 ### Response Publishing
@@ -427,7 +428,7 @@ Distributed tracing is supported via [W3C Trace Context](https://www.w3.org/TR/t
 | Span | Description | Key Attributes |
 |------|-------------|----------------|
 | `mqsubscriber.handle_message` | Per-message processing | `handler`, `message_id`, `blocking`, `request.header.*` |
-| `mqsubscriber.execute` | Command execution | `handler`, `command` |
+| `mqsubscriber.execute` | Command execution | `handler`, `command`, `command.timed_out`, `exit_code` |
 | `mqsubscriber.publish` | Response publish | `queue`, `response.header.*` |
 | `publish` | Publish subcommand | `messaging.destination.name`, `messaging.message.body.size` |
 
@@ -443,6 +444,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
 | `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
+| `mqsubscriber.command.timeouts` | Counter | Command execution timeouts | `handler` |
 
 ## Publish Subcommand
 

@@ -29,6 +29,7 @@ type CommandResult struct {
 	ExitCode int
 	Err      error // non-nil if command failed (non-zero exit or execution error)
 	Elapsed  time.Duration
+	TimedOut bool // true if the command was terminated due to timeout
 }
 
 // Handler matches messages by headers and executes a command.
@@ -122,6 +123,8 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	start := time.Now()
 
 	cmd := exec.CommandContext(cmdCtx, h.command[0], h.command[1:]...)
+	setupProcessGroup(cmd)
+	cmd.WaitDelay = 30 * time.Second
 	cmd.Stdin = bytes.NewReader(msg.Body)
 
 	// Set environment variables: inherit parent process env, overlay handler env, then message headers
@@ -142,11 +145,20 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 		}
 	}
 
+	timedOut := cmdCtx.Err() == context.DeadlineExceeded
+
 	result := &CommandResult{
-		Stdout:  stdout.Bytes(),
-		Stderr:  stderr.Bytes(),
-		Err:     err,
-		Elapsed: elapsed,
+		Stdout:   stdout.Bytes(),
+		Stderr:   stderr.Bytes(),
+		Err:      err,
+		Elapsed:  elapsed,
+		TimedOut: timedOut,
+	}
+	if timedOut {
+		h.metrics.commandTimeouts.Add(ctx, 1, metric.WithAttributeSet(h.attrs))
+		span.SetAttributes(attribute.Bool("command.timed_out", true))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "command timed out")
 	}
 	if err != nil {
 		if cmd.ProcessState != nil {
@@ -157,8 +169,10 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 			if stderrTail := tailBytes(result.Stderr, maxErrorBodySize); len(stderrTail) > 0 {
 				span.SetAttributes(attribute.String("command.stderr", string(stderrTail)))
 			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "command failed")
+			if !timedOut {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "command failed")
+			}
 		}
 	}
 	return result
