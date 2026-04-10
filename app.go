@@ -318,13 +318,15 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
 			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
+		a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		a.nackMessage(ctx, qmsg)
 		return
 
 	case result.Err != nil && handler.response:
 		// response mode failure: send error response, then delete
-		handler.logger.InfoContext(ctx, "command execution failed, sending error response",
+		handler.logger.ErrorContext(ctx, "command execution failed, sending error response",
 			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
+		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
 		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
 

@@ -153,6 +153,9 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 			result.ExitCode = cmd.ProcessState.ExitCode()
 		}
 		span.SetAttributes(attribute.Int("exit_code", result.ExitCode))
+		if stderrTail := tailBytes(result.Stderr, maxErrorBodySize); len(stderrTail) > 0 {
+			span.SetAttributes(attribute.String("command.stderr", string(stderrTail)))
+		}
 		if !h.shouldIgnoreResponse(result) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "command failed")
