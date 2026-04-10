@@ -154,6 +154,9 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 		}
 		span.SetAttributes(attribute.Int("exit_code", result.ExitCode))
 		if !h.shouldIgnoreResponse(result) {
+			if stderrTail := tailBytes(result.Stderr, maxErrorBodySize); len(stderrTail) > 0 {
+				span.SetAttributes(attribute.String("command.stderr", string(stderrTail)))
+			}
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "command failed")
 		}
