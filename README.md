@@ -304,6 +304,7 @@ Example with pattern matching:
   3. **Message headers** — passed as `MQ_HEADER_*` variables (dots and hyphens are converted to underscores, uppercased). e.g., `rabbitmq.routing_key` → `MQ_HEADER_RABBITMQ_ROUTING_KEY`
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
+- If the command times out, **SIGTERM** is sent first to allow graceful shutdown. If the process does not exit within 30 seconds, it is forcibly killed (SIGKILL)
 - If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted, redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured)
 
 ### Response Publishing
