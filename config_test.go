@@ -202,6 +202,46 @@ func TestValidateConfig(t *testing.T) {
 			}`,
 			wantErr: true,
 		},
+		// Circuit breaker
+		{
+			name: "valid circuit_breaker",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "circuit_breaker": {"max_errors": 3}}]
+			}`,
+		},
+		{
+			name: "circuit_breaker with ttl",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "circuit_breaker": {"max_errors": 5, "ttl": "5m"}}]
+			}`,
+		},
+		{
+			name: "circuit_breaker max_errors zero",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "circuit_breaker": {"max_errors": 0}}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "circuit_breaker invalid ttl",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "circuit_breaker": {"max_errors": 3, "ttl": "invalid"}}]
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "circuit_breaker with response mode",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"response": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "response": true, "circuit_breaker": {"max_errors": 3}}]
+			}`,
+			wantErr: true,
+		},
 		// Unknown fields rejected per backend
 		{
 			name: "simplemq request with rabbitmq field",

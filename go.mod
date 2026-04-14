@@ -11,6 +11,7 @@ require (
 	github.com/fujiwara/sloghandler v0.1.0
 	github.com/fujiwara/trabbits v0.0.17
 	github.com/hashicorp/go-envparse v0.1.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/sacloud/simplemq-api-go v0.5.0
 	go.opentelemetry.io/otel v1.42.0

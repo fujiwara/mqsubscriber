@@ -42,6 +42,7 @@ type Handler struct {
 	blocking        bool
 	response        bool
 	responseIgnore  *ResponseIgnoreConfig
+	circuitBreaker  *CircuitBreaker
 	maxConcurrency  int
 	sem             chan struct{} // semaphore for non-blocking concurrency control
 	logger          *slog.Logger
@@ -77,6 +78,9 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) (*Handler, e
 	}
 	if !h.blocking {
 		h.sem = make(chan struct{}, h.maxConcurrency)
+	}
+	if cfg.CircuitBreaker != nil {
+		h.circuitBreaker = NewCircuitBreaker(cfg.CircuitBreaker.MaxErrors, cfg.CircuitBreaker.GetTTL())
 	}
 	return h, nil
 }
@@ -198,6 +202,22 @@ func (h *Handler) Release() {
 		return
 	}
 	<-h.sem
+}
+
+// shouldCircuitBreak records an error for the message key and returns true
+// if the circuit breaker threshold has been reached (message should be dropped).
+func (h *Handler) shouldCircuitBreak(key string) bool {
+	if h.circuitBreaker == nil {
+		return false
+	}
+	return h.circuitBreaker.RecordError(key)
+}
+
+// clearCircuitBreaker removes the error count for a message key on success.
+func (h *Handler) clearCircuitBreaker(key string) {
+	if h.circuitBreaker != nil {
+		h.circuitBreaker.Clear(key)
+	}
 }
 
 // shouldIgnoreResponse returns true if the command result matches the response_ignore condition.

@@ -305,7 +305,37 @@ Example with pattern matching:
 - Command **stdout** becomes the response message body
 - Command **stderr** is logged
 - If the command times out, **SIGTERM** is sent to the entire process group (including child processes) to allow graceful shutdown. If the process does not exit within 30 seconds, it is forcibly killed (SIGKILL)
-- If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted, redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured)
+- If the command fails (non-zero exit) and `response` is disabled, the message is **nacked** (SimpleMQ: not deleted, redelivered after visibility timeout; RabbitMQ: nack without requeue, routed to dead-letter exchange if configured). If `circuit_breaker` is configured, the message is dropped (acked) after reaching the error threshold (see [Circuit Breaker](#circuit-breaker))
+
+### Circuit Breaker
+
+When a fire-and-forget handler (`response: false`) encounters repeated errors for the same message, the message is normally nacked and redelivered indefinitely. The `circuit_breaker` option prevents this by dropping (acking) the message after a configured number of failures.
+
+```jsonnet
+{
+  name: "process-task",
+  match: { "type": "task" },
+  command: ["./process.sh"],
+  circuit_breaker: {
+    max_errors: 5,    // drop the message after 5 failures
+    ttl: "10m",       // reset error count after 10 minutes (default: 10m)
+  },
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_errors` | int | (required) | Number of errors before dropping the message |
+| `ttl` | string | `"10m"` | Duration after which the error count resets |
+
+**Message identity across redeliveries:**
+
+- **SimpleMQ**: Uses the message ID (stable across redeliveries)
+- **RabbitMQ**: Uses the `rabbitmq.message_id` header (mapped from AMQP `MessageId` property). Publishers must set `MessageId` for the circuit breaker to work; without it, each redelivery gets a new delivery tag and the circuit breaker cannot track the message
+
+Error counts are stored in-memory per handler (up to 1024 tracked messages, LRU eviction). Counts reset on process restart.
+
+`circuit_breaker` cannot be used with `response: true` (response mode already acks on error).
 
 ### Response Publishing
 
@@ -443,6 +473,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.errors` | Counter | Message processing errors | `handler` |
 | `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
 | `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
+| `mqsubscriber.messages.circuit_broken` | Counter | Messages dropped by circuit breaker after repeated failures | `handler` |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 | `mqsubscriber.command.timeouts` | Counter | Command execution timeouts | `handler` |
 

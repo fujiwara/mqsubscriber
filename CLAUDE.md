@@ -25,6 +25,7 @@ go fmt ./...
 - `queue_rabbitmq.go` — RabbitMQ QueueClient implementations (RabbitMQReceiver, RabbitMQPublisher)
 - `app.go` — App struct, main loop (poll-based for SimpleMQ, push-based for RabbitMQ), message dispatch (blocking/non-blocking), graceful shutdown
 - `handler.go` — Handler matching (exact header match), command execution, semaphore concurrency control
+- `circuit_breaker.go` — CircuitBreaker struct (per-message error tracking with expirable LRU), messageKey helper
 - `config.go` — Config structs, Jsonnet loading via `jsonnet-armed`, validation, default constants, backend type detection
 - `publish.go` — `PublishCmd` subcommand, `newRequestPublisher` helper, header parsing
 - `cli.go` — CLI definition (`kong`), logger setup, `RunCLI()` entry point
@@ -54,6 +55,7 @@ go fmt ./...
 - `HandlerConfig.LogMessage` is `string` — custom log message emitted at Info level when handling a message. No-op if empty
 - `HandlerConfig.LogHeaderFields` is `[]string` — message header keys to include in log as `header.<key>` attributes. Missing headers are silently skipped
 - `HandlerConfig.LogBodyFields` is `[]string` — top-level JSON fields to extract from message body and include in log. Body is only parsed when this is set; parse failure logs a warning
+- `HandlerConfig.CircuitBreaker` is `*CircuitBreakerConfig` — when set, drops (acks) messages after `max_errors` consecutive failures for the same message. Only valid for fire-and-forget handlers (`response: false`). Uses `hashicorp/golang-lru/v2/expirable` for TTL-based entry expiry. Message identity: SimpleMQ uses `QueueMessage.ID` (stable); RabbitMQ uses `rabbitmq.message_id` header (requires publisher to set `MessageId`). `DefaultCircuitBreakerMaxEntries` (1024) caps tracked message keys per handler
 - `Config.MaxResponseChain` is `int` (default 0) — number of allowed response chain hops. 0 means responses routed back as requests are dropped. N allows up to N chain hops
 - `Config.DropUnmatched` is `bool` (default false) — when false, messages matching no handler are nacked (SimpleMQ: redelivered after visibility timeout; RabbitMQ: nack without requeue). When true, unmatched messages are acked (deleted)
 - `QueueClient.Nack` always nacks without requeue — SimpleMQ: no-op (visibility timeout handles redelivery); RabbitMQ: nack with requeue=false (message routed to dead-letter exchange if configured)
@@ -76,6 +78,7 @@ go fmt ./...
 - **RabbitMQ prefetch**: Set to the sum of all handlers' `max_concurrency` to prevent over-fetching.
 - **Non-RPC response routing**: `buildResponse` removes `rabbitmq.exchange`/`rabbitmq.routing_key` from non-RPC responses so the publisher uses the configured response queue instead of routing back to the request exchange.
 - **Response chain guard**: `buildResponse` increments `mqsubscriber.responded` header on every response. `poll()` checks this counter against `max_response_chain` before dispatching — messages exceeding the limit are warn-logged and ack-dropped. Default limit is 0 (no chaining).
+- **Circuit breaker**: Per-handler `CircuitBreaker` tracks error counts per message key using `expirable.LRU` (thread-safe, TTL-based eviction). On fire-and-forget failure, `shouldCircuitBreak` increments the count and returns true at threshold — the message is acked (dropped) instead of nacked. On success, `clearCircuitBreaker` removes the entry. In-memory only; counts reset on process restart.
 
 ## Testing
 
