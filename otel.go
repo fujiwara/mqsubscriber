@@ -110,13 +110,14 @@ func headerAttributes(prefix string, headers map[string]string) []attribute.KeyV
 
 // Metrics holds OpenTelemetry metric instruments.
 type Metrics struct {
-	messagesReceived  metric.Int64Counter
-	messagesProcessed metric.Int64Counter
-	messageErrors     metric.Int64Counter
-	messagesDropped   metric.Int64Counter
-	messagesUnmatched metric.Int64Counter
-	commandDuration   metric.Float64Histogram
-	commandTimeouts   metric.Int64Counter
+	messagesReceived      metric.Int64Counter
+	messagesProcessed     metric.Int64Counter
+	messageErrors         metric.Int64Counter
+	messagesDropped       metric.Int64Counter
+	messagesUnmatched     metric.Int64Counter
+	messagesCircuitBroken metric.Int64Counter
+	commandDuration       metric.Float64Histogram
+	commandTimeouts       metric.Int64Counter
 }
 
 func newMetrics() (*Metrics, error) {
@@ -157,6 +158,13 @@ func newMetrics() (*Metrics, error) {
 		return nil, fmt.Errorf("failed to create messages.unmatched counter: %w", err)
 	}
 
+	circuitBroken, err := meter.Int64Counter("mqsubscriber.messages.circuit_broken",
+		metric.WithDescription("Messages dropped by circuit breaker after repeated failures"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create messages.circuit_broken counter: %w", err)
+	}
+
 	duration, err := meter.Float64Histogram("mqsubscriber.command.duration",
 		metric.WithDescription("Command execution duration (seconds)"),
 		metric.WithUnit("s"),
@@ -173,13 +181,14 @@ func newMetrics() (*Metrics, error) {
 	}
 
 	return &Metrics{
-		messagesReceived:  received,
-		messagesProcessed: processed,
-		messageErrors:     errors,
-		messagesDropped:   dropped,
-		messagesUnmatched: unmatched,
-		commandDuration:   duration,
-		commandTimeouts:   timeouts,
+		messagesReceived:      received,
+		messagesProcessed:     processed,
+		messageErrors:         errors,
+		messagesDropped:       dropped,
+		messagesUnmatched:     unmatched,
+		messagesCircuitBroken: circuitBroken,
+		commandDuration:       duration,
+		commandTimeouts:       timeouts,
 	}, nil
 }
 
@@ -193,6 +202,7 @@ func (m *Metrics) initCounters(ctx context.Context, handlers []*Handler) {
 		opts := metric.WithAttributeSet(h.attrs)
 		m.messagesProcessed.Add(ctx, 0, opts)
 		m.messageErrors.Add(ctx, 0, opts)
+		m.messagesCircuitBroken.Add(ctx, 0, opts)
 		m.commandTimeouts.Add(ctx, 0, opts)
 	}
 }

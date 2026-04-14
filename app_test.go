@@ -683,6 +683,150 @@ func TestResponseChainDrop(t *testing.T) {
 	}
 }
 
+func TestCircuitBreakerDrop(t *testing.T) {
+	// Use a short visibility timeout so nacked messages are redelivered quickly
+	srv := localserver.NewTestServer(localserver.Config{
+		APIKey:            testAPIKey,
+		VisibilityTimeout: 300 * time.Millisecond,
+	})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-cb")
+	resQueue := uniqueName("res-cb")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "fail-cb",
+			Match:    map[string]string{"rabbitmq.routing_key": "fail"},
+			Command:  []string{"false"},
+			Blocking: true,
+			CircuitBreaker: &CircuitBreakerConfig{
+				MaxErrors: 3,
+				TTL:       "1m",
+			},
+		},
+	})
+
+	app, err := New(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	go app.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("will-be-dropped"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key": "fail",
+		},
+	})
+
+	// Wait for the message to fail 3 times (nack → redelivery → nack → redelivery → circuit break → ack)
+	// Each cycle: receive + execute + nack + visibility_timeout ≈ 300ms+
+	// 3 failures should take ~2s with 300ms visibility timeout
+	time.Sleep(4 * time.Second)
+
+	// After circuit breaker triggers, the message should be dropped (acked/deleted)
+	// Stop the subscriber and wait for visibility timeout to expire
+	cancel()
+	time.Sleep(600 * time.Millisecond)
+
+	res, err := newTestSMQClient(t, srv.TestURL()).ReceiveMessage(t.Context(), message.ReceiveMessageParams{
+		QueueName: message.QueueName(reqQueue),
+	})
+	if err != nil {
+		t.Fatalf("failed to check request queue: %v", err)
+	}
+	recvOK, ok := res.(*message.ReceiveMessageOK)
+	if ok && len(recvOK.Messages) > 0 {
+		t.Error("expected request queue to be empty after circuit breaker drop")
+	}
+
+	// No response should have been sent (response: false)
+	received := receiveTestMessage(t, t.Context(), client, resQueue)
+	if received != nil {
+		t.Errorf("expected no response, got %q", string(received.Body))
+	}
+}
+
+func TestCircuitBreakerClearOnSuccess(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{
+		APIKey:            testAPIKey,
+		VisibilityTimeout: 300 * time.Millisecond,
+	})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-cb-clear")
+	resQueue := uniqueName("res-cb-clear")
+
+	// Command succeeds (cat), so circuit breaker count should stay clear
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:     "success-cb",
+			Match:    map[string]string{"rabbitmq.routing_key": "ok"},
+			Command:  []string{"cat"},
+			Blocking: true,
+			CircuitBreaker: &CircuitBreakerConfig{
+				MaxErrors: 2,
+				TTL:       "1m",
+			},
+		},
+	})
+
+	app, err := New(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	go app.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	// Send a message that succeeds — it should be processed and acked normally
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body: []byte("success"),
+		Headers: map[string]string{
+			"rabbitmq.routing_key": "ok",
+		},
+	})
+
+	time.Sleep(1 * time.Second)
+
+	// Verify circuit breaker count was cleared (the handler's circuit breaker should have no entries)
+	handler := app.handlers[0]
+	if handler.circuitBreaker == nil {
+		t.Fatal("expected circuit breaker to be initialized")
+	}
+	if handler.circuitBreaker.counts.Len() != 0 {
+		t.Errorf("expected circuit breaker to have 0 entries after success, got %d", handler.circuitBreaker.counts.Len())
+	}
+
+	// Verify the message was acked (queue is empty)
+	cancel()
+	time.Sleep(600 * time.Millisecond)
+
+	res, err := newTestSMQClient(t, srv.TestURL()).ReceiveMessage(t.Context(), message.ReceiveMessageParams{
+		QueueName: message.QueueName(reqQueue),
+	})
+	if err != nil {
+		t.Fatalf("failed to check request queue: %v", err)
+	}
+	recvOK, ok := res.(*message.ReceiveMessageOK)
+	if ok && len(recvOK.Messages) > 0 {
+		t.Error("expected request queue to be empty after successful processing")
+	}
+}
+
 func TestResponseChainAllow(t *testing.T) {
 	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
 	defer srv.Close()

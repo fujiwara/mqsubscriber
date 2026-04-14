@@ -151,6 +151,18 @@ type ResponseIgnoreConfig struct {
 	ExitCode *int `json:"exit_code"`
 }
 
+// CircuitBreakerConfig defines circuit breaker settings for a handler.
+// When a message causes repeated errors, it is dropped (acked) after max_errors failures.
+type CircuitBreakerConfig struct {
+	MaxErrors int    `json:"max_errors"`
+	TTL       string `json:"ttl"`
+}
+
+// GetTTL returns the TTL as a time.Duration.
+func (c *CircuitBreakerConfig) GetTTL() time.Duration {
+	return parseDurationOrDefault(c.TTL, DefaultCircuitBreakerTTL)
+}
+
 // HandlerConfig defines a handler that matches messages and executes a command.
 type HandlerConfig struct {
 	Name            string                `json:"name"`
@@ -162,6 +174,7 @@ type HandlerConfig struct {
 	MaxConcurrency  int                   `json:"max_concurrency"`
 	Response        bool                  `json:"response"`
 	ResponseIgnore  *ResponseIgnoreConfig `json:"response_ignore"`
+	CircuitBreaker  *CircuitBreakerConfig `json:"circuit_breaker"`
 	Env             map[string]string     `json:"env"`
 	LogMessage      string                `json:"log_message"`
 	LogHeaderFields []string              `json:"log_header_fields"`
@@ -441,6 +454,19 @@ func (h *HandlerConfig) validate(index int) error {
 	}
 	if h.ResponseIgnore != nil && h.ResponseIgnore.ExitCode == nil {
 		return fmt.Errorf("handlers[%d].response_ignore.exit_code is required", index)
+	}
+	if h.CircuitBreaker != nil {
+		if h.CircuitBreaker.MaxErrors <= 0 {
+			return fmt.Errorf("handlers[%d].circuit_breaker.max_errors must be greater than 0", index)
+		}
+		if h.CircuitBreaker.TTL != "" {
+			if _, err := time.ParseDuration(h.CircuitBreaker.TTL); err != nil {
+				return fmt.Errorf("handlers[%d].circuit_breaker.ttl is invalid: %w", index, err)
+			}
+		}
+		if h.Response {
+			return fmt.Errorf("handlers[%d].circuit_breaker cannot be used with response mode (errors are already acked)", index)
+		}
 	}
 	return nil
 }

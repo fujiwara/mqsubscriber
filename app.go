@@ -312,14 +312,23 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 			"messageId", qmsg.ID, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 
 	case result.Err != nil && !handler.response:
-		// fire-and-forget failure: nack for redelivery
+		// fire-and-forget failure: check circuit breaker, then nack or drop
 		span.RecordError(result.Err)
 		span.SetStatus(codes.Error, "command execution failed")
 		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
 			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-		a.nackMessage(ctx, qmsg)
+		key := messageKey(qmsg)
+		if handler.shouldCircuitBreak(key) {
+			handler.logger.WarnContext(ctx, "circuit breaker triggered, dropping message",
+				"messageId", qmsg.ID, "threshold", handler.circuitBreaker.threshold)
+			span.SetAttributes(attribute.Bool("circuit_breaker.triggered", true))
+			a.metrics.messagesCircuitBroken.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
+			a.ackMessage(ctx, qmsg)
+		} else {
+			a.nackMessage(ctx, qmsg)
+		}
 		return
 
 	case result.Err != nil && handler.response:
@@ -340,6 +349,7 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	default:
 		// fire-and-forget success: just delete
 		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", qmsg.ID, "elapsed", result.Elapsed)
+		handler.clearCircuitBreaker(messageKey(qmsg))
 	}
 
 	a.ackMessage(ctx, qmsg)
