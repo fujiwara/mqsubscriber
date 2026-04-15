@@ -593,7 +593,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`{"order_id":"ORD-001","status":"pending","secret":"s3cret"}`),
 		}
 		// Should not panic; log output is visual confirmation
-		h.logHandlerMessage(t.Context(), msg, "msg-1")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("with log_header_fields", func(t *testing.T) {
@@ -613,7 +613,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body: []byte(`{}`),
 		}
 		// Should log header.rabbitmq.routing_key and header.x-type but not header.rabbitmq.exchange
-		h.logHandlerMessage(t.Context(), msg, "msg-h1")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("with log_header_fields and log_body_fields", func(t *testing.T) {
@@ -633,7 +633,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body: []byte(`{"order_id":"ORD-001"}`),
 		}
 		// Should log both header and body fields
-		h.logHandlerMessage(t.Context(), msg, "msg-h2")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("with log_header_fields missing header", func(t *testing.T) {
@@ -649,7 +649,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`{}`),
 		}
 		// Missing header should be silently skipped
-		h.logHandlerMessage(t.Context(), msg, "msg-h3")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("with log_message only (no body fields)", func(t *testing.T) {
@@ -664,7 +664,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`not json`),
 		}
 		// No body parsing, should not warn
-		h.logHandlerMessage(t.Context(), msg, "msg-2")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("no log_message configured", func(t *testing.T) {
@@ -678,7 +678,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`{"order_id":"ORD-001"}`),
 		}
 		// Should be a no-op
-		h.logHandlerMessage(t.Context(), msg, "msg-3")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("invalid JSON body with log_body_fields", func(t *testing.T) {
@@ -694,7 +694,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`not json`),
 		}
 		// Should warn but not panic
-		h.logHandlerMessage(t.Context(), msg, "msg-4")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 
 	t.Run("missing field in body", func(t *testing.T) {
@@ -710,7 +710,7 @@ func TestLogHandlerMessage(t *testing.T) {
 			Body:    []byte(`{"order_id":"ORD-001"}`),
 		}
 		// Should log without the missing field
-		h.logHandlerMessage(t.Context(), msg, "msg-5")
+		h.logHandlerMessage(t.Context(), msg)
 	})
 }
 
