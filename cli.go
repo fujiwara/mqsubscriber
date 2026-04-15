@@ -10,7 +10,10 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fujiwara/sloghandler"
+	"github.com/fujiwara/sloghandler/otelmetrics"
 	"github.com/hashicorp/go-envparse"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // CLI defines the command-line interface.
@@ -40,12 +43,12 @@ func RunCLI(ctx context.Context) error {
 			return fmt.Errorf("failed to load envfile %s: %w", cli.EnvFile, err)
 		}
 	}
-	setupLogger(cli.LogFormat, cli.LogLevel)
 	shutdownOTel, err := setupOTelProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup OpenTelemetry providers: %w", err)
 	}
 	defer shutdownOTel(context.WithoutCancel(ctx))
+	setupLogger(cli.LogFormat, cli.LogLevel)
 	return kctx.Run(cli)
 }
 
@@ -130,6 +133,17 @@ func setupLogger(format, level string) {
 			HandlerOptions: slog.HandlerOptions{Level: logLevel},
 			Color:          true,
 			Source:         true,
+		})
+	}
+	meter := otel.Meter(tracerName)
+	logCounter, err := meter.Int64Counter("mqsubscriber.log.messages",
+		metric.WithDescription("Number of log messages by level"),
+	)
+	if err != nil {
+		slog.Warn("failed to create log message counter", "error", err)
+	} else {
+		handler = otelmetrics.NewHandlerWithOptions(handler, logCounter, &otelmetrics.Options{
+			MinLevel: logLevel,
 		})
 	}
 	slog.SetDefault(slog.New(newTraceHandler(handler)))

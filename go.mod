@@ -9,6 +9,7 @@ require (
 	github.com/fujiwara/sakura-secrets-cli v0.3.0
 	github.com/fujiwara/simplemq-cli v0.8.0
 	github.com/fujiwara/sloghandler v0.1.0
+	github.com/fujiwara/sloghandler/otelmetrics v0.1.0
 	github.com/fujiwara/trabbits v0.0.17
 	github.com/hashicorp/go-envparse v0.1.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7

@@ -476,6 +476,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.circuit_broken` | Counter | Messages dropped by circuit breaker after repeated failures | `handler` |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 | `mqsubscriber.command.timeouts` | Counter | Command execution timeouts | `handler` |
+| `mqsubscriber.log.messages` | Counter | Number of log messages by level | `level` |
 
 ## Publish Subcommand
 
