@@ -116,6 +116,7 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "mqsubscriber.execute",
 		trace.WithAttributes(
 			attribute.String("handler", h.name),
+			attribute.String("message_id", messageIDFromContext(ctx)),
 			attribute.String("command", h.command[0]),
 		),
 	)
@@ -322,11 +323,11 @@ func buildEnv(ctx context.Context, handlerEnv map[string]string, headers map[str
 }
 
 // logHandlerMessage logs a custom message with selected header and body fields.
-func (h *Handler) logHandlerMessage(ctx context.Context, msg *mqbridge.Message, msgID string) {
+func (h *Handler) logHandlerMessage(ctx context.Context, msg *mqbridge.Message) {
 	if h.logMessage == "" {
 		return
 	}
-	attrs := []any{"messageId", msgID}
+	var attrs []any
 	for _, field := range h.logHeaderFields {
 		if v, ok := msg.Headers[field]; ok {
 			attrs = append(attrs, "header."+field, v)
@@ -336,7 +337,7 @@ func (h *Handler) logHandlerMessage(ctx context.Context, msg *mqbridge.Message, 
 		var body map[string]any
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			h.logger.WarnContext(ctx, "failed to parse message body as JSON for log_body_fields",
-				"messageId", msgID, "error", err)
+				"error", err)
 		} else {
 			for _, field := range h.logBodyFields {
 				if v, ok := body[field]; ok {

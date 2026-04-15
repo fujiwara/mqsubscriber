@@ -195,6 +195,7 @@ func (a *App) poll(ctx context.Context) (int, error) {
 	// in-flight work (command execution, response publish, request delete)
 	// completes even during shutdown.
 	msgCtx := context.WithoutCancel(ctx)
+	msgCtx = contextWithMessageID(msgCtx, qmsg.ID)
 
 	// Invalid message (decode failed): ack and skip
 	if qmsg.Message == nil {
@@ -216,8 +217,7 @@ func (a *App) poll(ctx context.Context) (int, error) {
 		)
 		span.SetStatus(codes.Error, "response chain limit reached")
 		span.End()
-		slog.Warn("dropping message: response chain limit reached",
-			"messageId", qmsg.ID,
+		slog.WarnContext(msgCtx, "dropping message: response chain limit reached",
 			"responded", qmsg.Message.Headers[HeaderResponseChain],
 			"max_response_chain", a.config.MaxResponseChain,
 		)
@@ -229,15 +229,13 @@ func (a *App) poll(ctx context.Context) (int, error) {
 	handler := a.findHandler(qmsg.Message)
 	if handler == nil {
 		if a.config.DropUnmatched {
-			slog.Warn("no matching handler, dropping message",
-				"messageId", qmsg.ID,
+			slog.WarnContext(msgCtx, "no matching handler, dropping message",
 				"headers", qmsg.Message.Headers,
 			)
 			a.metrics.messagesDropped.Add(msgCtx, 1)
 			a.ackMessage(msgCtx, qmsg)
 		} else {
-			slog.Warn("no matching handler, nacking message",
-				"messageId", qmsg.ID,
+			slog.WarnContext(msgCtx, "no matching handler, nacking message",
 				"headers", qmsg.Message.Headers,
 			)
 			a.metrics.messagesUnmatched.Add(msgCtx, 1)
@@ -300,8 +298,8 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	)
 	defer span.End()
 
-	handler.logger.InfoContext(ctx, "handling message", "messageId", qmsg.ID)
-	handler.logHandlerMessage(ctx, msg, qmsg.ID)
+	handler.logger.InfoContext(ctx, "handling message")
+	handler.logHandlerMessage(ctx, msg)
 
 	result := handler.Execute(ctx, msg)
 
@@ -309,20 +307,20 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	case result.Err != nil && handler.shouldIgnoreResponse(result):
 		// response_ignore matched: suppress response, delete message
 		handler.logger.InfoContext(ctx, "response ignored by exit code",
-			"messageId", qmsg.ID, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
+			"exit_code", result.ExitCode, "elapsed", result.Elapsed)
 
 	case result.Err != nil && !handler.response:
 		// fire-and-forget failure: check circuit breaker, then nack or drop
 		span.RecordError(result.Err)
 		span.SetStatus(codes.Error, "command execution failed")
 		handler.logger.ErrorContext(ctx, "command execution failed. no response will be sent since response mode is disabled",
-			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
+			"error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		key := messageKey(qmsg)
 		if handler.shouldCircuitBreak(key) {
 			handler.logger.WarnContext(ctx, "circuit breaker triggered, dropping message",
-				"messageId", qmsg.ID, "threshold", handler.circuitBreaker.threshold)
+				"threshold", handler.circuitBreaker.threshold)
 			span.SetAttributes(attribute.Bool("circuit_breaker.triggered", true))
 			a.metrics.messagesCircuitBroken.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 			a.ackMessage(ctx, qmsg)
@@ -334,41 +332,41 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 	case result.Err != nil && handler.response:
 		// response mode failure: send error response, then delete
 		handler.logger.ErrorContext(ctx, "command execution failed, sending error response",
-			"messageId", qmsg.ID, "error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
+			"error", result.Err, "exit_code", result.ExitCode, "elapsed", result.Elapsed)
 		a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 		resp := handler.buildResponse(msg, tailBytes(result.Stderr, maxErrorBodySize), "error", result.ExitCode)
-		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
+		a.publishResponse(ctx, span, handler, resp)
 
 	case handler.response:
 		// response mode success: send success response, then delete
 		handler.logger.InfoContext(ctx, "command execution succeeded, sending success response",
-			"messageId", qmsg.ID, "elapsed", result.Elapsed)
+			"elapsed", result.Elapsed)
 		resp := handler.buildResponse(msg, result.Stdout, "success", 0)
-		a.publishResponse(ctx, span, handler, resp, qmsg.ID)
+		a.publishResponse(ctx, span, handler, resp)
 
 	default:
 		// fire-and-forget success: just delete
-		handler.logger.InfoContext(ctx, "command execution succeeded", "messageId", qmsg.ID, "elapsed", result.Elapsed)
+		handler.logger.InfoContext(ctx, "command execution succeeded", "elapsed", result.Elapsed)
 		handler.clearCircuitBreaker(messageKey(qmsg))
 	}
 
 	a.ackMessage(ctx, qmsg)
 	a.metrics.messagesProcessed.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
-	handler.logger.InfoContext(ctx, "message processed", "messageId", qmsg.ID)
+	handler.logger.InfoContext(ctx, "message processed")
 }
 
 // publishResponse injects trace context and publishes a response message with
 // retry. After exhausting all retries, it logs the error so the caller
 // proceeds to ack the request message (preventing command re-execution on
 // redelivery).
-func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message, msgID string) {
+func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message) {
 	injectTraceContext(ctx, resp.Headers)
 	var lastErr error
 	for attempt := range publishRetryCount {
 		if attempt > 0 {
 			backoff := publishRetryBaseInterval * (1 << (attempt - 1)) // 1s, 2s, 4s
 			handler.logger.InfoContext(ctx, "retrying response publish",
-				"messageId", msgID, "attempt", attempt+1, "backoff", backoff)
+				"attempt", attempt+1, "backoff", backoff)
 			time.Sleep(backoff)
 		}
 		if err := a.publishResult(ctx, resp); err != nil {
@@ -381,13 +379,14 @@ func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Han
 	span.RecordError(lastErr)
 	span.SetStatus(codes.Error, "failed to publish result after retries")
 	handler.logger.ErrorContext(ctx, "failed to publish result after retries, deleting message",
-		"messageId", msgID, "error", lastErr, "retries", publishRetryCount)
+		"error", lastErr, "retries", publishRetryCount)
 	a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 }
 
 func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
 	ctx, span := a.tracer.Start(ctx, "mqsubscriber.publish",
 		trace.WithAttributes(
+			attribute.String("message_id", messageIDFromContext(ctx)),
 			attribute.String("queue", a.config.ResponseQueue),
 		),
 		trace.WithAttributes(headerAttributes("response.header.", msg.Headers)...),
@@ -404,12 +403,12 @@ func (a *App) publishResult(ctx context.Context, msg *mqbridge.Message) error {
 
 func (a *App) ackMessage(ctx context.Context, qmsg *QueueMessage) {
 	if err := a.reqQueue.Ack(ctx, qmsg); err != nil {
-		slog.Error("failed to ack message", "messageId", qmsg.ID, "error", err)
+		slog.ErrorContext(ctx, "failed to ack message", "error", err)
 	}
 }
 
 func (a *App) nackMessage(ctx context.Context, qmsg *QueueMessage) {
 	if err := a.reqQueue.Nack(ctx, qmsg); err != nil {
-		slog.Error("failed to nack message", "messageId", qmsg.ID, "error", err)
+		slog.ErrorContext(ctx, "failed to nack message", "error", err)
 	}
 }

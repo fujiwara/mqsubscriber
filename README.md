@@ -258,7 +258,7 @@ Each handler can emit a custom log message when it starts processing a message, 
 
 Example log output:
 ```
-INFO processing notification  handler=notify messageId=abc123 header.rabbitmq.routing_key=notify body.notification_id=N-001 body.channel=slack
+INFO processing notification  handler=notify message_id=abc123 header.rabbitmq.routing_key=notify body.notification_id=N-001 body.channel=slack
 ```
 
 ### Handler Matching

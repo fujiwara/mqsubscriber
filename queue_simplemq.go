@@ -75,7 +75,7 @@ func (r *SimpleMQReceiver) Receive(ctx context.Context) (*QueueMessage, error) {
 		// Invalid message: ack (delete) it and return a QueueMessage with nil Message
 		// so the caller can identify and skip it.
 		slog.Error("failed to decode message content, deleting invalid message",
-			"messageId", raw.ID, "error", err)
+			"message_id", raw.ID, "error", err)
 		return &QueueMessage{
 			ID:       string(raw.ID),
 			Message:  nil,
