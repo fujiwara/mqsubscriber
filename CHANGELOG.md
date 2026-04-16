@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.7.5](https://github.com/fujiwara/mqsubscriber/compare/v0.7.4...v0.7.5) - 2026-04-16
+- Generate message_id for publish subcommand by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/53
+
 ## [v0.7.4](https://github.com/fujiwara/mqsubscriber/compare/v0.7.3...v0.7.4) - 2026-04-15
 - Add OpenTelemetry metrics for log messages by level by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/50
 - Add message_id to all logs and trace spans via context by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/52
