@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/fujiwara/mqbridge"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -39,6 +40,14 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 		msg.Headers = make(map[string]string)
 	}
 
+	// Generate message_id if not already set
+	messageID := uuid.New().String()
+	if existing := msg.Headers[mqbridge.HeaderRabbitMQMessageID]; existing != "" {
+		messageID = existing
+	} else {
+		msg.Headers[mqbridge.HeaderRabbitMQMessageID] = messageID
+	}
+
 	// Restore parent trace context from TRACEPARENT environment variable (W3C standard)
 	ctx = extractTraceContextFromEnv(ctx)
 
@@ -67,9 +76,10 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 
 	span.SetAttributes(
 		attribute.String("messaging.destination.name", queue),
+		attribute.String("message_id", messageID),
 		attribute.Int("messaging.message.body.size", len(body)),
 	)
-	slog.Info("message published", "queue", queue, "headers", c.Header, "body_size", len(body))
+	slog.Info("message published", "queue", queue, "message_id", messageID, "headers", c.Header, "body_size", len(body))
 	return nil
 }
 
