@@ -339,7 +339,7 @@ Error counts are stored in-memory per handler (up to 1024 tracked messages, LRU 
 
 ### Response Publishing
 
-Response messages are published with retry (3 attempts, exponential backoff: 1s, 2s, 4s). If all retries are exhausted, the request message is still acknowledged to prevent command re-execution on redelivery.
+Response messages are published with retry (3 attempts, exponential backoff: 1s then 2s between attempts, capped at 4s). If all retries are exhausted, the request message is still acknowledged to prevent command re-execution on redelivery.
 
 ### Response Chain Guard
 
@@ -501,7 +501,7 @@ mqsubscriber publish -c config.jsonnet [flags]
 
 ### Retry
 
-The `publish` subcommand opens a fresh connection to the backend on every invocation, so transient dial failures (TCP timeouts, intermediate network devices closing idle paths, etc.) are the common failure mode. Publishes are therefore retried up to 3 times with exponential backoff (1s, 2s, 4s). If all attempts fail the command exits with a non-zero status. Interrupting the command (e.g. Ctrl+C) during the backoff aborts immediately.
+The `publish` subcommand opens a fresh connection to the backend on every invocation, so transient dial failures (TCP timeouts, intermediate network devices closing idle paths, etc.) are the common failure mode. Publishes are therefore retried up to 3 times with exponential backoff (1s then 2s between attempts) — the same policy used for response publishing. If all attempts fail the command exits with a non-zero status. Interrupting the command (e.g. Ctrl+C) during the backoff aborts immediately.
 
 ### Destination Routing
 

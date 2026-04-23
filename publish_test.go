@@ -10,6 +10,7 @@ import (
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/fujiwara/simplemq-cli/localserver"
+	retry "github.com/shogo82148/go-retry/v2"
 )
 
 func TestPublishCmd(t *testing.T) {
@@ -201,12 +202,16 @@ func (p *flakyPublisher) Ack(context.Context, *QueueMessage) error       { panic
 func (p *flakyPublisher) Nack(context.Context, *QueueMessage) error      { panic("unused") }
 func (p *flakyPublisher) Close() error                                   { return nil }
 
-// withShortBackoff swaps publishRetryBaseInterval for the duration of a test.
+// withShortBackoff swaps publishRetryPolicy for a fast one for the duration of a test.
 func withShortBackoff(t *testing.T) {
 	t.Helper()
-	orig := publishRetryBaseInterval
-	publishRetryBaseInterval = time.Millisecond
-	t.Cleanup(func() { publishRetryBaseInterval = orig })
+	orig := publishRetryPolicy
+	publishRetryPolicy = &retry.Policy{
+		MinDelay: time.Millisecond,
+		MaxDelay: 4 * time.Millisecond,
+		MaxCount: orig.MaxCount,
+	}
+	t.Cleanup(func() { publishRetryPolicy = orig })
 }
 
 func TestPublishWithRetrySucceedsAfterTransient(t *testing.T) {
@@ -231,8 +236,8 @@ func TestPublishWithRetryExhausted(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Errorf("expected last error %v, got %v", wantErr, err)
 	}
-	if pub.calls != publishRetryCount {
-		t.Errorf("expected %d Publish calls, got %d", publishRetryCount, pub.calls)
+	if pub.calls != publishRetryPolicy.MaxCount {
+		t.Errorf("expected %d Publish calls, got %d", publishRetryPolicy.MaxCount, pub.calls)
 	}
 }
 

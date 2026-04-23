@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/google/uuid"
@@ -84,29 +83,28 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	return nil
 }
 
-// publishWithRetry publishes a message using the same retry policy as response
-// publishing: up to publishRetryCount attempts with exponential backoff
-// (1s, 2s, 4s). Retries on any error — publish is a one-shot command that
-// opens a fresh TCP connection each invocation, so transient dial failures
-// are the common case.
+// publishWithRetry publishes a message using publishRetryPolicy. Retries on any
+// error — publish is a one-shot command that opens a fresh connection each
+// invocation, so transient dial failures are the common case. Backoff waits
+// respect context cancellation.
 func publishWithRetry(ctx context.Context, pub QueueClient, msg *mqbridge.Message) error {
 	var lastErr error
-	for attempt := range publishRetryCount {
-		if attempt > 0 {
-			backoff := publishRetryBaseInterval * (1 << (attempt - 1))
-			slog.InfoContext(ctx, "retrying publish",
-				"attempt", attempt+1, "backoff", backoff, "error", lastErr)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+	var attempt int
+	retrier := publishRetryPolicy.Start(ctx)
+	for retrier.Continue() {
+		attempt++
 		if err := pub.Publish(ctx, msg); err != nil {
 			lastErr = err
+			if attempt < publishRetryPolicy.MaxCount {
+				slog.InfoContext(ctx, "publish failed, retrying",
+					"attempt", attempt, "error", err)
+			}
 			continue
 		}
 		return nil
+	}
+	if err := retrier.Err(); err != nil {
+		return err
 	}
 	return lastErr
 }

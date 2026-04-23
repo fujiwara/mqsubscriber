@@ -60,8 +60,8 @@ go fmt ./...
 - `Config.DropUnmatched` is `bool` (default false) — when false, messages matching no handler are nacked (SimpleMQ: redelivered after visibility timeout; RabbitMQ: nack without requeue). When true, unmatched messages are acked (deleted)
 - `QueueClient.Nack` always nacks without requeue — SimpleMQ: no-op (visibility timeout handles redelivery); RabbitMQ: nack with requeue=false (message routed to dead-letter exchange if configured)
 - Response queue is optional — required only when any handler has `response: true`
-- Response publishing retries 3 times with exponential backoff (1s, 2s, 4s). On exhaustion, the request message is still acked to prevent command re-execution
-- `publish` subcommand uses the same retry policy (`publishWithRetry` in `publish.go`) — each invocation opens a new connection, so transient dial failures are retried. Backoff waits respect context cancellation (Ctrl+C aborts immediately)
+- Publish retry uses a shared `publishRetryPolicy` (`*retry.Policy` from `github.com/shogo82148/go-retry/v2`) declared in `app.go`. 3 attempts, exponential backoff (1s, then 2s between attempts). Used by both `publishResponse` (response publishing) and `publishWithRetry` (publish subcommand). On exhaustion in `publishResponse`, the request message is still acked to prevent command re-execution
+- The `publish` subcommand receives a cancellable ctx from `signal.NotifyContext`, so Ctrl+C during backoff aborts immediately. `publishResponse` receives a `context.WithoutCancel` ctx (see `poll`), so response publish retries complete even during shutdown — same behavior as before the go-retry migration
 - Command timeout sends SIGTERM to the process group (Setpgid + negative PID kill), then SIGKILL after 30s WaitDelay. `CommandResult.TimedOut` tracks timeout state. Timeout is recorded as `command.timed_out` span attribute and `mqsubscriber.command.timeouts` metric counter
 - Commands inherit the parent process environment, overlaid with handler `env`, then `MQ_HEADER_*` from message headers
 - Environment variable prefix for headers is `MQ_HEADER_` (not `SIMPLEMQ_HEADER_`)
@@ -100,6 +100,7 @@ go fmt ./...
 | `github.com/rabbitmq/amqp091-go` | RabbitMQ AMQP client |
 | `github.com/sacloud/simplemq-api-go` | SimpleMQ API client |
 | `github.com/sacloud/secretmanager-api-go` | SAKURA Cloud Secret Manager client |
+| `github.com/shogo82148/go-retry/v2` | Retry policy for queue publishes |
 | `github.com/testcontainers/testcontainers-go` | RabbitMQ integration tests (Docker) |
 | `go.opentelemetry.io/otel` | OpenTelemetry API, SDK, exporters (metrics + traces) |
 
