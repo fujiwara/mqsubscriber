@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/google/uuid"
@@ -69,7 +70,7 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	}
 	defer pub.Close()
 
-	if err := pub.Publish(ctx, msg); err != nil {
+	if err := publishWithRetry(ctx, pub, msg); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
@@ -81,6 +82,33 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	)
 	slog.Info("message published", "queue", queue, "message_id", messageID, "headers", c.Header, "body_size", len(body))
 	return nil
+}
+
+// publishWithRetry publishes a message using the same retry policy as response
+// publishing: up to publishRetryCount attempts with exponential backoff
+// (1s, 2s, 4s). Retries on any error — publish is a one-shot command that
+// opens a fresh TCP connection each invocation, so transient dial failures
+// are the common case.
+func publishWithRetry(ctx context.Context, pub QueueClient, msg *mqbridge.Message) error {
+	var lastErr error
+	for attempt := range publishRetryCount {
+		if attempt > 0 {
+			backoff := publishRetryBaseInterval * (1 << (attempt - 1))
+			slog.InfoContext(ctx, "retrying publish",
+				"attempt", attempt+1, "backoff", backoff, "error", lastErr)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if err := pub.Publish(ctx, msg); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 func (c *PublishCmd) readBody() ([]byte, error) {

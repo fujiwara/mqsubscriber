@@ -15,12 +15,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	// publishRetryCount is the number of retry attempts for response publishing.
-	publishRetryCount = 3
-	// publishRetryBaseInterval is the base interval for exponential backoff.
-	publishRetryBaseInterval = time.Second
-)
+// publishRetryCount is the number of retry attempts for publishing.
+const publishRetryCount = 3
+
+// publishRetryBaseInterval is the base interval for exponential backoff.
+// Declared as var so tests can lower it to keep runs fast.
+var publishRetryBaseInterval = time.Second
 
 // App holds the application state.
 type App struct {

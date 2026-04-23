@@ -499,6 +499,10 @@ mqsubscriber publish -c config.jsonnet [flags]
 
 `--body` and `--body-file` are mutually exclusive. `--request` and `--response` are mutually exclusive.
 
+### Retry
+
+The `publish` subcommand opens a fresh connection to the backend on every invocation, so transient dial failures (TCP timeouts, intermediate network devices closing idle paths, etc.) are the common failure mode. Publishes are therefore retried up to 3 times with exponential backoff (1s, 2s, 4s). If all attempts fail the command exits with a non-zero status. Interrupting the command (e.g. Ctrl+C) during the backoff aborts immediately.
+
 ### Destination Routing
 
 By default, messages are sent to the request queue. Use `--response` to send to the response queue instead.

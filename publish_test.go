@@ -1,9 +1,12 @@
 package subscriber
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/fujiwara/simplemq-cli/localserver"
@@ -174,6 +177,81 @@ func TestNewResponsePublisherNoConfig(t *testing.T) {
 	_, err := newResponsePublisher(cfg)
 	if err == nil {
 		t.Error("expected error when response queue is not configured")
+	}
+}
+
+// flakyPublisher is a QueueClient that fails the first failUntil Publish calls
+// then succeeds. Only Publish is implemented; other methods panic.
+type flakyPublisher struct {
+	failUntil int
+	calls     int
+	err       error
+}
+
+func (p *flakyPublisher) Publish(_ context.Context, _ *mqbridge.Message) error {
+	p.calls++
+	if p.calls <= p.failUntil {
+		return p.err
+	}
+	return nil
+}
+
+func (p *flakyPublisher) Receive(context.Context) (*QueueMessage, error) { panic("unused") }
+func (p *flakyPublisher) Ack(context.Context, *QueueMessage) error       { panic("unused") }
+func (p *flakyPublisher) Nack(context.Context, *QueueMessage) error      { panic("unused") }
+func (p *flakyPublisher) Close() error                                   { return nil }
+
+// withShortBackoff swaps publishRetryBaseInterval for the duration of a test.
+func withShortBackoff(t *testing.T) {
+	t.Helper()
+	orig := publishRetryBaseInterval
+	publishRetryBaseInterval = time.Millisecond
+	t.Cleanup(func() { publishRetryBaseInterval = orig })
+}
+
+func TestPublishWithRetrySucceedsAfterTransient(t *testing.T) {
+	withShortBackoff(t)
+
+	pub := &flakyPublisher{failUntil: 2, err: errors.New("transient")}
+	err := publishWithRetry(t.Context(), pub, &mqbridge.Message{})
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if pub.calls != 3 {
+		t.Errorf("expected 3 Publish calls (2 fail + 1 success), got %d", pub.calls)
+	}
+}
+
+func TestPublishWithRetryExhausted(t *testing.T) {
+	withShortBackoff(t)
+
+	wantErr := errors.New("persistent")
+	pub := &flakyPublisher{failUntil: 100, err: wantErr}
+	err := publishWithRetry(t.Context(), pub, &mqbridge.Message{})
+	if !errors.Is(err, wantErr) {
+		t.Errorf("expected last error %v, got %v", wantErr, err)
+	}
+	if pub.calls != publishRetryCount {
+		t.Errorf("expected %d Publish calls, got %d", publishRetryCount, pub.calls)
+	}
+}
+
+func TestPublishWithRetryContextCanceled(t *testing.T) {
+	// Use the production backoff (1s) so the first retry will definitely
+	// wait long enough for us to cancel.
+	pub := &flakyPublisher{failUntil: 100, err: errors.New("boom")}
+	ctx, cancel := context.WithCancel(t.Context())
+	// Cancel shortly after the first failure, while the retry is sleeping.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	err := publishWithRetry(ctx, pub, &mqbridge.Message{})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if pub.calls != 1 {
+		t.Errorf("expected 1 Publish call before cancellation, got %d", pub.calls)
 	}
 }
 
