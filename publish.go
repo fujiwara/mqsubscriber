@@ -69,7 +69,7 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	}
 	defer pub.Close()
 
-	if err := pub.Publish(ctx, msg); err != nil {
+	if err := publishWithRetry(ctx, pub, msg); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
@@ -81,6 +81,32 @@ func (c *PublishCmd) Run(ctx context.Context, globals *CLI) error {
 	)
 	slog.Info("message published", "queue", queue, "message_id", messageID, "headers", c.Header, "body_size", len(body))
 	return nil
+}
+
+// publishWithRetry publishes a message using publishRetryPolicy. Retries on any
+// error — publish is a one-shot command that opens a fresh connection each
+// invocation, so transient dial failures are the common case. Backoff waits
+// respect context cancellation.
+func publishWithRetry(ctx context.Context, pub QueueClient, msg *mqbridge.Message) error {
+	var lastErr error
+	var attempt int
+	retrier := publishRetryPolicy.Start(ctx)
+	for retrier.Continue() {
+		attempt++
+		if err := pub.Publish(ctx, msg); err != nil {
+			lastErr = err
+			if attempt < publishRetryPolicy.MaxCount {
+				slog.InfoContext(ctx, "publish failed, retrying",
+					"attempt", attempt, "error", err)
+			}
+			continue
+		}
+		return nil
+	}
+	if err := retrier.Err(); err != nil {
+		return err
+	}
+	return lastErr
 }
 
 func (c *PublishCmd) readBody() ([]byte, error) {

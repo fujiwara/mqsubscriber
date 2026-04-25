@@ -9,18 +9,22 @@ import (
 	"time"
 
 	"github.com/fujiwara/mqbridge"
+	retry "github.com/shogo82148/go-retry/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	// publishRetryCount is the number of retry attempts for response publishing.
-	publishRetryCount = 3
-	// publishRetryBaseInterval is the base interval for exponential backoff.
-	publishRetryBaseInterval = time.Second
-)
+// publishRetryPolicy is the shared retry policy for queue publishes
+// (both response publishing and the publish subcommand).
+// 3 attempts with sleeps of 1s and 2s between them.
+// Declared as var so tests can swap it to keep runs fast.
+var publishRetryPolicy = &retry.Policy{
+	MinDelay: 1 * time.Second,
+	MaxDelay: 4 * time.Second,
+	MaxCount: 3,
+}
 
 // App holds the application state.
 type App struct {
@@ -362,24 +366,30 @@ func (a *App) handleMessage(ctx context.Context, handler *Handler, qmsg *QueueMe
 func (a *App) publishResponse(ctx context.Context, span trace.Span, handler *Handler, resp *mqbridge.Message) {
 	injectTraceContext(ctx, resp.Headers)
 	var lastErr error
-	for attempt := range publishRetryCount {
-		if attempt > 0 {
-			backoff := publishRetryBaseInterval * (1 << (attempt - 1)) // 1s, 2s, 4s
-			handler.logger.InfoContext(ctx, "retrying response publish",
-				"attempt", attempt+1, "backoff", backoff)
-			time.Sleep(backoff)
-		}
+	var attempt int
+	retrier := publishRetryPolicy.Start(ctx)
+	for retrier.Continue() {
+		attempt++
 		if err := a.publishResult(ctx, resp); err != nil {
 			lastErr = err
+			if attempt < publishRetryPolicy.MaxCount {
+				handler.logger.InfoContext(ctx, "response publish failed, retrying",
+					"attempt", attempt, "error", err)
+			}
 			continue
 		}
 		return
 	}
-	// All retries exhausted: record error but proceed to ack
+	// All retries exhausted: record error but proceed to ack.
+	// retrier.Err() returns ctx error if the loop exited due to cancellation;
+	// otherwise fall back to the last publish error.
+	if err := retrier.Err(); err != nil && lastErr == nil {
+		lastErr = err
+	}
 	span.RecordError(lastErr)
 	span.SetStatus(codes.Error, "failed to publish result after retries")
 	handler.logger.ErrorContext(ctx, "failed to publish result after retries, deleting message",
-		"error", lastErr, "retries", publishRetryCount)
+		"error", lastErr, "retries", publishRetryPolicy.MaxCount)
 	a.metrics.messageErrors.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
 }
 
