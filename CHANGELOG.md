@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.7.6](https://github.com/fujiwara/mqsubscriber/compare/v0.7.5...v0.7.6) - 2026-04-25
+- Retry publish subcommand with exponential backoff by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/55
+
 ## [v0.7.5](https://github.com/fujiwara/mqsubscriber/compare/v0.7.4...v0.7.5) - 2026-04-16
 - Generate message_id for publish subcommand by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/53
 
