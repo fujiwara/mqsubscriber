@@ -242,6 +242,23 @@ func TestValidateConfig(t *testing.T) {
 			}`,
 			wantErr: true,
 		},
+		// reject_on_full
+		{
+			name: "reject_on_full with non-blocking handler",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "reject_on_full": true}]
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "reject_on_full with blocking handler",
+			json: `{
+				"request": {"queue": "q", "api_key": "k"},
+				"handlers": [{"name": "h", "match": {"k": "v"}, "command": ["echo"], "blocking": true, "reject_on_full": true}]
+			}`,
+			wantErr: true,
+		},
 		// Unknown fields rejected per backend
 		{
 			name: "simplemq request with rabbitmq field",

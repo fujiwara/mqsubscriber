@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"os"
@@ -44,6 +45,7 @@ type Handler struct {
 	responseIgnore  *ResponseIgnoreConfig
 	circuitBreaker  *CircuitBreaker
 	maxConcurrency  int
+	rejectOnFull    bool          // when true, reject (no wait) if max_concurrency is reached
 	sem             chan struct{} // semaphore for non-blocking concurrency control
 	logger          *slog.Logger
 	metrics         *Metrics
@@ -66,6 +68,7 @@ func NewHandler(cfg HandlerConfig, logger *slog.Logger, m *Metrics) (*Handler, e
 		response:        cfg.Response,
 		responseIgnore:  cfg.ResponseIgnore,
 		maxConcurrency:  cfg.GetMaxConcurrency(),
+		rejectOnFull:    cfg.RejectOnFull,
 		logger:          logger.With("handler", cfg.Name),
 		metrics:         m,
 		env:             cfg.Env,
@@ -183,11 +186,25 @@ func (h *Handler) Execute(ctx context.Context, msg *mqbridge.Message) *CommandRe
 	return result
 }
 
+// ErrSlotFull is returned by Acquire when the handler is at max_concurrency
+// and reject_on_full is enabled. The caller must dispose of the message
+// (ack or nack) instead of waiting.
+var ErrSlotFull = errors.New("handler at max_concurrency")
+
 // Acquire acquires a semaphore slot for non-blocking handlers.
-// Blocks if max_concurrency is reached.
+// Blocks until a slot is free, unless reject_on_full is enabled — in which
+// case it returns ErrSlotFull immediately when the semaphore is full.
 func (h *Handler) Acquire(ctx context.Context) error {
 	if h.blocking {
 		return nil
+	}
+	if h.rejectOnFull {
+		select {
+		case h.sem <- struct{}{}:
+			return nil
+		default:
+			return ErrSlotFull
+		}
 	}
 	select {
 	case h.sem <- struct{}{}:

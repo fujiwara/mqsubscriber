@@ -2,6 +2,7 @@ package subscriber
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -251,8 +252,14 @@ func (a *App) poll(ctx context.Context) (int, error) {
 	if handler.blocking {
 		a.handleMessage(msgCtx, handler, qmsg)
 	} else {
-		// Acquire semaphore before spawning goroutine (blocks if at max_concurrency)
+		// Acquire semaphore before spawning goroutine.
+		// Blocks until a slot is free; returns ErrSlotFull immediately if reject_on_full is set
+		// and max_concurrency is reached.
 		if err := handler.Acquire(ctx); err != nil {
+			if errors.Is(err, ErrSlotFull) {
+				a.rejectFullMessage(msgCtx, handler, qmsg)
+				return 1, nil
+			}
 			return 0, err // context cancelled
 		}
 		a.wg.Go(func() {
@@ -261,6 +268,35 @@ func (a *App) poll(ctx context.Context) (int, error) {
 		})
 	}
 	return 1, nil
+}
+
+// rejectFullMessage handles a message when the handler is at max_concurrency
+// and reject_on_full is enabled. Disposition follows the top-level drop_unmatched:
+// drop_unmatched=true acks (drops) the message; otherwise nacks it.
+func (a *App) rejectFullMessage(ctx context.Context, handler *Handler, qmsg *QueueMessage) {
+	dropCtx := extractTraceContext(ctx, qmsg.Message.Headers)
+	_, span := a.tracer.Start(dropCtx, "mqsubscriber.handler_rejected",
+		trace.WithAttributes(
+			attribute.String("handler", handler.name),
+			attribute.String("message_id", qmsg.ID),
+			attribute.Int("max_concurrency", handler.maxConcurrency),
+			attribute.Bool("drop_unmatched", a.config.DropUnmatched),
+		),
+	)
+	span.SetStatus(codes.Error, "handler at max_concurrency")
+	span.End()
+
+	a.metrics.messagesRejected.Add(ctx, 1, metric.WithAttributeSet(handler.attrs))
+
+	if a.config.DropUnmatched {
+		handler.logger.WarnContext(ctx, "handler at max_concurrency, dropping message",
+			"max_concurrency", handler.maxConcurrency)
+		a.ackMessage(ctx, qmsg)
+	} else {
+		handler.logger.WarnContext(ctx, "handler at max_concurrency, nacking message",
+			"max_concurrency", handler.maxConcurrency)
+		a.nackMessage(ctx, qmsg)
+	}
 }
 
 // exceedsResponseChain returns true if the message's response chain count
