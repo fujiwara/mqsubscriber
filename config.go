@@ -172,6 +172,7 @@ type HandlerConfig struct {
 	Timeout         string                `json:"timeout"`
 	Blocking        bool                  `json:"blocking"`
 	MaxConcurrency  int                   `json:"max_concurrency"`
+	RejectOnFull    bool                  `json:"reject_on_full"`
 	Response        bool                  `json:"response"`
 	ResponseIgnore  *ResponseIgnoreConfig `json:"response_ignore"`
 	CircuitBreaker  *CircuitBreakerConfig `json:"circuit_breaker"`
@@ -448,6 +449,9 @@ func (h *HandlerConfig) validate(index int) error {
 	}
 	if !h.Blocking && h.MaxConcurrency < 0 {
 		return fmt.Errorf("handlers[%d].max_concurrency must be positive", index)
+	}
+	if h.RejectOnFull && h.Blocking {
+		return fmt.Errorf("handlers[%d].reject_on_full requires blocking to be false", index)
 	}
 	if h.ResponseIgnore != nil && !h.Response {
 		return fmt.Errorf("handlers[%d].response_ignore requires response to be true", index)

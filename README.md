@@ -239,6 +239,7 @@ Only one of `simplemq` or `rabbitmq` can be configured per process.
       timeout: "10s",
       blocking: false,       // run in background goroutine
       max_concurrency: 5,    // max concurrent executions (default: 1)
+      reject_on_full: false, // optional: when true, reject (no wait) at max_concurrency — disposition follows drop_unmatched
       // response defaults to false (fire-and-forget)
       log_message: "processing notification",  // optional: custom log message per handler
       log_header_fields: ["rabbitmq.routing_key"],  // optional: header keys to include in log
@@ -294,6 +295,7 @@ Example with pattern matching:
 
 - **blocking: true** — The subscriber waits for the command to complete before processing the next message
 - **blocking: false** — The command runs in a goroutine. The subscriber immediately proceeds to the next message. When `max_concurrency` is reached, the subscriber blocks until a slot is available
+- **reject_on_full: true** (non-blocking only) — Instead of waiting when `max_concurrency` is reached, the message is immediately rejected without invoking the command. Disposition follows the top-level `drop_unmatched`: `drop_unmatched: true` acks (drops) the message; `drop_unmatched: false` nacks it (SimpleMQ: redelivered after visibility timeout; RabbitMQ: nack without requeue). Useful when waiting would build unwanted backpressure on the receive loop
 
 ### Command Execution
 
@@ -474,6 +476,7 @@ Errors (command failure, publish failure) are recorded on spans with `Error` sta
 | `mqsubscriber.messages.dropped` | Counter | Messages dropped/acked with no matching handler (`drop_unmatched: true`) | — |
 | `mqsubscriber.messages.unmatched` | Counter | Messages nacked with no matching handler (`drop_unmatched: false`) | — |
 | `mqsubscriber.messages.circuit_broken` | Counter | Messages dropped by circuit breaker after repeated failures | `handler` |
+| `mqsubscriber.messages.rejected` | Counter | Messages rejected because handler reached `max_concurrency` (`reject_on_full: true`) | `handler` |
 | `mqsubscriber.command.duration` | Histogram | Command execution duration (seconds) | `handler` |
 | `mqsubscriber.command.timeouts` | Counter | Command execution timeouts | `handler` |
 | `mqsubscriber.log.messages` | Counter | Number of log messages by level | `level` |

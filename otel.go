@@ -116,6 +116,7 @@ type Metrics struct {
 	messagesDropped       metric.Int64Counter
 	messagesUnmatched     metric.Int64Counter
 	messagesCircuitBroken metric.Int64Counter
+	messagesRejected      metric.Int64Counter
 	commandDuration       metric.Float64Histogram
 	commandTimeouts       metric.Int64Counter
 }
@@ -165,6 +166,13 @@ func newMetrics() (*Metrics, error) {
 		return nil, fmt.Errorf("failed to create messages.circuit_broken counter: %w", err)
 	}
 
+	rejected, err := meter.Int64Counter("mqsubscriber.messages.rejected",
+		metric.WithDescription("Messages rejected because handler reached max_concurrency (reject_on_full: true)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create messages.rejected counter: %w", err)
+	}
+
 	duration, err := meter.Float64Histogram("mqsubscriber.command.duration",
 		metric.WithDescription("Command execution duration (seconds)"),
 		metric.WithUnit("s"),
@@ -187,6 +195,7 @@ func newMetrics() (*Metrics, error) {
 		messagesDropped:       dropped,
 		messagesUnmatched:     unmatched,
 		messagesCircuitBroken: circuitBroken,
+		messagesRejected:      rejected,
 		commandDuration:       duration,
 		commandTimeouts:       timeouts,
 	}, nil
@@ -203,6 +212,7 @@ func (m *Metrics) initCounters(ctx context.Context, handlers []*Handler) {
 		m.messagesProcessed.Add(ctx, 0, opts)
 		m.messageErrors.Add(ctx, 0, opts)
 		m.messagesCircuitBroken.Add(ctx, 0, opts)
+		m.messagesRejected.Add(ctx, 0, opts)
 		m.commandTimeouts.Add(ctx, 0, opts)
 	}
 }

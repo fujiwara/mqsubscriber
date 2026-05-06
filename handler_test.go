@@ -2,8 +2,10 @@ package subscriber
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/fujiwara/mqbridge"
 	"github.com/fujiwara/trabbits/pattern"
@@ -787,6 +789,75 @@ func TestBuildEnvTraceparent(t *testing.T) {
 	if got := tp2; len(got) < 36 || got[3:35] != traceID {
 		t.Errorf("TRACEPARENT trace ID mismatch: expected %s in %s", traceID, got)
 	}
+}
+
+func TestHandlerAcquireRejectOnFull(t *testing.T) {
+	m := newTestMetrics(t)
+	ctx := t.Context()
+
+	t.Run("returns ErrSlotFull when saturated and recovers after release", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:           "t",
+			Match:          map[string]string{"k": "v"},
+			Command:        []string{"true"},
+			MaxConcurrency: 2,
+			RejectOnFull:   true,
+		}, m)
+		if err := h.Acquire(ctx); err != nil {
+			t.Fatalf("first Acquire: %v", err)
+		}
+		if err := h.Acquire(ctx); err != nil {
+			t.Fatalf("second Acquire: %v", err)
+		}
+		if err := h.Acquire(ctx); !errors.Is(err, ErrSlotFull) {
+			t.Fatalf("third Acquire: expected ErrSlotFull, got %v", err)
+		}
+		h.Release()
+		if err := h.Acquire(ctx); err != nil {
+			t.Fatalf("Acquire after Release: %v", err)
+		}
+		h.Release()
+		h.Release()
+	})
+
+	t.Run("without reject_on_full, blocks until slot is free", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:           "t",
+			Match:          map[string]string{"k": "v"},
+			Command:        []string{"true"},
+			MaxConcurrency: 1,
+		}, m)
+		if err := h.Acquire(ctx); err != nil {
+			t.Fatalf("first Acquire: %v", err)
+		}
+		// Release after a short delay, expect Acquire to unblock and return nil.
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			h.Release()
+		}()
+		start := time.Now()
+		if err := h.Acquire(ctx); err != nil {
+			t.Fatalf("blocking Acquire: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
+			t.Errorf("expected Acquire to block for ~50ms, got %v", elapsed)
+		}
+		h.Release()
+	})
+
+	t.Run("blocking handler returns nil immediately", func(t *testing.T) {
+		h := newTestHandler(t, HandlerConfig{
+			Name:     "t",
+			Match:    map[string]string{"k": "v"},
+			Command:  []string{"true"},
+			Blocking: true,
+		}, m)
+		for i := range 5 {
+			if err := h.Acquire(ctx); err != nil {
+				t.Fatalf("blocking handler Acquire #%d: %v", i, err)
+			}
+		}
+	})
 }
 
 func TestExtractTraceContextFromEnv(t *testing.T) {

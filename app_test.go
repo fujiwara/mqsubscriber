@@ -827,6 +827,135 @@ func TestCircuitBreakerClearOnSuccess(t *testing.T) {
 	}
 }
 
+func TestRejectOnFullDrop(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{
+		APIKey:            testAPIKey,
+		VisibilityTimeout: 300 * time.Millisecond,
+	})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-reject-drop")
+	resQueue := uniqueName("res-reject-drop")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:           "slow",
+			Match:          map[string]string{"rabbitmq.routing_key": "slow"},
+			Command:        []string{"sleep", "1"},
+			Timeout:        "5s",
+			Blocking:       false,
+			MaxConcurrency: 1,
+			RejectOnFull:   true,
+		},
+	})
+	cfg.DropUnmatched = true
+
+	app, err := New(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	// Two messages sent before app starts so both are immediately available.
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body:    []byte("first"),
+		Headers: map[string]string{"rabbitmq.routing_key": "slow"},
+	})
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body:    []byte("second"),
+		Headers: map[string]string{"rabbitmq.routing_key": "slow"},
+	})
+
+	go app.Run(ctx)
+
+	// Wait for first message to finish executing (sleep 1s) plus margin.
+	time.Sleep(2 * time.Second)
+	cancel()
+	// Wait past visibility timeout so any non-acked message would be visible.
+	time.Sleep(500 * time.Millisecond)
+
+	res, err := newTestSMQClient(t, srv.TestURL()).ReceiveMessage(t.Context(), message.ReceiveMessageParams{
+		QueueName: message.QueueName(reqQueue),
+	})
+	if err != nil {
+		t.Fatalf("failed to check request queue: %v", err)
+	}
+	recvOK, ok := res.(*message.ReceiveMessageOK)
+	if ok && len(recvOK.Messages) > 0 {
+		t.Errorf("expected request queue to be empty (rejected message acked), got %d remaining", len(recvOK.Messages))
+	}
+}
+
+func TestRejectOnFullNack(t *testing.T) {
+	srv := localserver.NewTestServer(localserver.Config{
+		APIKey:            testAPIKey,
+		VisibilityTimeout: 500 * time.Millisecond,
+	})
+	defer srv.Close()
+
+	reqQueue := uniqueName("req-reject-nack")
+	resQueue := uniqueName("res-reject-nack")
+
+	cfg := newTestSMQConfig(srv.TestURL(), reqQueue, resQueue, []HandlerConfig{
+		{
+			Name:           "slow",
+			Match:          map[string]string{"rabbitmq.routing_key": "slow"},
+			Command:        []string{"sleep", "1"},
+			Timeout:        "5s",
+			Blocking:       false,
+			MaxConcurrency: 1,
+			RejectOnFull:   true,
+		},
+	})
+	// DropUnmatched defaults to false — rejected messages should be nacked (stay in queue).
+	if cfg.DropUnmatched {
+		t.Fatal("expected DropUnmatched to default to false")
+	}
+
+	app, err := New(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	client := newTestSMQClient(t, srv.TestURL())
+
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body:    []byte("first"),
+		Headers: map[string]string{"rabbitmq.routing_key": "slow"},
+	})
+	sendTestMessage(t, ctx, client, reqQueue, &mqbridge.Message{
+		Body:    []byte("second"),
+		Headers: map[string]string{"rabbitmq.routing_key": "slow"},
+	})
+
+	go app.Run(ctx)
+
+	// First message will sleep 1s; second message will be rejected before then.
+	// Cancel before second message can be redelivered and re-processed.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	// Wait for the in-flight first message (sleep 1s) to complete and visibility to expire.
+	time.Sleep(2 * time.Second)
+
+	res, err := newTestSMQClient(t, srv.TestURL()).ReceiveMessage(t.Context(), message.ReceiveMessageParams{
+		QueueName: message.QueueName(reqQueue),
+	})
+	if err != nil {
+		t.Fatalf("failed to check request queue: %v", err)
+	}
+	recvOK, ok := res.(*message.ReceiveMessageOK)
+	if !ok || len(recvOK.Messages) == 0 {
+		t.Error("expected rejected message to remain in queue (nacked, not dropped)")
+	}
+}
+
 func TestResponseChainAllow(t *testing.T) {
 	srv := localserver.NewTestServer(localserver.Config{APIKey: testAPIKey})
 	defer srv.Close()
