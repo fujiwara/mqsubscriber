@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.7.7](https://github.com/fujiwara/mqsubscriber/compare/v0.7.6...v0.7.7) - 2026-05-06
+- Add reject_on_full handler option by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/65
+
 ## [v0.7.6](https://github.com/fujiwara/mqsubscriber/compare/v0.7.5...v0.7.6) - 2026-04-27
 - Retry publish subcommand with exponential backoff by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/55
 
