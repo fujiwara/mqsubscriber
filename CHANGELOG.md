@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.7.8](https://github.com/fujiwara/mqsubscriber/compare/v0.7.7...v0.7.8) - 2026-09-19
+- Rename CLAUDE.md to AGENTS.md by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/73
+
 ## [v0.7.7](https://github.com/fujiwara/mqsubscriber/compare/v0.7.6...v0.7.7) - 2026-05-06
 - Add reject_on_full handler option by @fujiwara in https://github.com/fujiwara/mqsubscriber/pull/65
 
